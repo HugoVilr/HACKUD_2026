@@ -1,1 +1,3 @@
-export const nowISO = (): string => new Date().toISOString();
+export function nowIso(): string {
+  return new Date().toISOString();
+}

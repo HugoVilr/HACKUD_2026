@@ -1,12 +1,25 @@
 import type { EncryptedVault } from "./types";
+import { isEncryptedVault } from "./guards";
 
-const STORAGE_KEY = "vault_encrypted";
+const KEY = "hackudc.vault.encrypted.v1";
 
-export const saveEncryptedVault = async (vault: EncryptedVault): Promise<void> => {
-  await chrome.storage.local.set({ [STORAGE_KEY]: vault });
-};
+export async function saveEncryptedVault(v: EncryptedVault): Promise<void> {
+  await chrome.storage.local.set({ [KEY]: v });
+}
 
-export const loadEncryptedVault = async (): Promise<EncryptedVault | null> => {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  return (result[STORAGE_KEY] as EncryptedVault | undefined) ?? null;
-};
+export async function loadEncryptedVault(): Promise<EncryptedVault | null> {
+  const obj = await chrome.storage.local.get(KEY);
+  const raw = obj[KEY] as unknown;
+  if (!raw) return null;
+  if (!isEncryptedVault(raw)) return null;
+  return raw;
+}
+
+export async function deleteEncryptedVault(): Promise<void> {
+  await chrome.storage.local.remove(KEY);
+}
+
+export async function hasEncryptedVault(): Promise<boolean> {
+  const obj = await chrome.storage.local.get(KEY);
+  return obj[KEY] != null;
+}
