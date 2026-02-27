@@ -20,9 +20,12 @@ export type ApiErrorCode =
   | "LOCKED"
   | "BAD_MASTER"
   | "WEAK_MASTER"
+  | "LEAKED_MASTER"  // SECURITY FIX #6: Master password filtrada (HIBP check)
+  | "RATE_LIMITED"   // SECURITY FIX #3: Demasiados intentos de unlock
   | "NOT_FOUND"
   | "VALIDATION"
   | "INTERNAL"
+  | "FORBIDDEN"      // SECURITY FIX #5: Mensaje desde origen no autorizado
   | "UNKNOWN_MESSAGE";
 
 export type ApiResponse<T> =
