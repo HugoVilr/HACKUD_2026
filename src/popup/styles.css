@@ -1,9 +1,94 @@
 :root {
-  font-family: sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  padding: 12px;
-  min-width: 320px;
+  min-width: 360px;
+  background: linear-gradient(145deg, #f8f9fc 0%, #edf2fb 100%);
+  color: #1f2937;
+}
+
+.popup {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chip {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #dbe5f1;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.muted {
+  margin: 0 0 12px;
+  color: #4b5563;
+  line-height: 1.4;
+}
+
+button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+button:hover {
+  background: #eef2f7;
+}
+
+button.primary {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+button.primary:hover {
+  background: #1d4ed8;
+}
+
+.router {
+  display: grid;
+  gap: 8px;
+}
+
+.router-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.router-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }

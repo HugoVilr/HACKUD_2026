@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Vault Extension",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  },
+  "permissions": ["storage"]
+}
