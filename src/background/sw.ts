@@ -1,7 +1,15 @@
-import type { Message } from "../shared/messages";
+import { MSG } from "../shared/messages";
+import { handleMessage } from "./session";
 
-chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
-  // TODO: route message to session/core handlers.
-  sendResponse({ ok: true, messageType: message.type });
-  return true;
+chrome.runtime.onMessage.addListener((message: any, _sender, sendResponse) => {
+  (async () => {
+    try {
+      const res = await handleMessage(message);
+      sendResponse(res);
+    } catch {
+      sendResponse({ ok: false, error: { code: "INTERNAL", message: "Error interno" } });
+    }
+  })();
+
+  return true; // async
 });

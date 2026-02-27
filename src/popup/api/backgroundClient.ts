@@ -1,5 +1,7 @@
-import type { Message } from "../../shared/messages";
+import type { ApiResponse, RequestMessage } from "../../shared/messages";
 
-export const sendMessage = <TResponse = unknown>(message: Message): Promise<TResponse> => {
-  return chrome.runtime.sendMessage(message) as Promise<TResponse>;
-};
+export function sendToBackground<T>(msg: RequestMessage): Promise<ApiResponse<T>> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(msg, (res: ApiResponse<T>) => resolve(res));
+  });
+}
