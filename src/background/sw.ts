@@ -1,51 +1,149 @@
-import { MSG } from "../shared/messages";
-import { handleMessage } from "./session";
+import type { VaultEntry } from "../core/vault/types";
+import {
+  MESSAGE_TYPES,
+  type AnyRequestMessage,
+  type ApiResult,
+  type MessageType,
+  type MessageResponseMap,
+  type VaultStatusData
+} from "../shared/messages";
 
-/**
- * SECURITY FIX #5: Validación de origen de mensajes
- * 
- * VULNERABILIDAD ENCONTRADA:
- * - Cualquier página web o content script podía enviar mensajes a la extensión
- * - No se verificaba el origen del sender (sender.id, sender.url)
- * - Superficie de ataque externa: código malicioso podría intentar extraer datos
- * 
- * RIESGO:
- * - CRÍTICO: Un atacante con el extension ID podría enviar comandos arbitrarios
- * - Posibilidad de exfiltración de datos o manipulación del vault desde páginas web
- * 
- * SOLUCIÓN IMPLEMENTADA:
- * - Validar que el mensaje viene de la propia extensión (sender.id === chrome.runtime.id)
- * - Rechazar mensajes de tabs externos o URLs no autorizadas
- * - Solo permitir comunicación desde componentes internos de la extensión
- */
-chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
-  // Validación de origen: solo aceptar mensajes de nuestra propia extensión
-  if (!sender.id || sender.id !== chrome.runtime.id) {
-    sendResponse({ 
-      ok: false, 
-      error: { code: "FORBIDDEN", message: "Origen no autorizado" } 
-    });
-    return;
-  }
+interface MockState {
+  hasVault: boolean;
+  locked: boolean;
+  masterPassword: string;
+  vaultName?: string;
+  entries: VaultEntry[];
+}
 
-  // Bloquear mensajes desde tabs (páginas web con content scripts)
-  // Solo permitir desde componentes internos (popup, options, etc.)
-  if (sender.tab) {
-    sendResponse({ 
-      ok: false, 
-      error: { code: "FORBIDDEN", message: "No se permiten mensajes desde tabs" } 
-    });
-    return;
-  }
+const mockState: MockState = {
+  hasVault: false,
+  locked: true,
+  masterPassword: "",
+  vaultName: undefined,
+  entries: []
+};
 
-  (async () => {
-    try {
-      const res = await handleMessage(message);
-      sendResponse(res);
-    } catch {
-      sendResponse({ ok: false, error: { code: "INTERNAL", message: "Error interno" } });
+const ok = <TData>(data: TData): ApiResult<TData> => ({ ok: true, data });
+const err = (code: string, message: string): ApiResult<never> => ({
+  ok: false,
+  error: { code, message }
+});
+
+const getStatus = (): VaultStatusData => ({
+  hasVault: mockState.hasVault,
+  locked: mockState.locked,
+  vaultName: mockState.vaultName,
+  entryCount: mockState.entries.length
+});
+
+const handleMessage = (message: AnyRequestMessage): MessageResponseMap[MessageType] => {
+  switch (message.type) {
+    case MESSAGE_TYPES.VAULT_CREATE: {
+      const { masterPassword, confirmPassword, vaultName } = message.payload;
+      if (!masterPassword || !confirmPassword) {
+        return err("VALIDATION_ERROR", "Master password and confirm password are required.");
+      }
+      if (masterPassword !== confirmPassword) {
+        return err("MASTER_MISMATCH", "Master passwords do not match.");
+      }
+
+      mockState.hasVault = true;
+      mockState.locked = true;
+      mockState.masterPassword = masterPassword;
+      mockState.vaultName = vaultName?.trim() || "Vault";
+      mockState.entries = [];
+      return ok(getStatus());
     }
-  })();
 
-  return true; // async
+    case MESSAGE_TYPES.VAULT_UNLOCK: {
+      if (!mockState.hasVault) {
+        return err("VAULT_MISSING", "Vault does not exist.");
+      }
+      if (message.payload.masterPassword !== mockState.masterPassword) {
+        return err("MASTER_INCORRECT", "Master password is incorrect.");
+      }
+      mockState.locked = false;
+      return ok(getStatus());
+    }
+
+    case MESSAGE_TYPES.VAULT_LOCK: {
+      mockState.locked = true;
+      return ok(getStatus());
+    }
+
+    case MESSAGE_TYPES.VAULT_STATUS: {
+      return ok(getStatus());
+    }
+
+    case MESSAGE_TYPES.ENTRY_LIST: {
+      if (mockState.locked) {
+        return err("VAULT_LOCKED", "Vault is locked.");
+      }
+      const query = message.payload?.query?.trim().toLowerCase();
+      const entries = !query
+        ? mockState.entries
+        : mockState.entries.filter((entry) => {
+            return (
+              entry.title.toLowerCase().includes(query) ||
+              (entry.username ?? "").toLowerCase().includes(query) ||
+              (entry.notes ?? "").toLowerCase().includes(query)
+            );
+          });
+      return ok({ entries });
+    }
+
+    case MESSAGE_TYPES.ENTRY_GET: {
+      if (mockState.locked) {
+        return err("VAULT_LOCKED", "Vault is locked.");
+      }
+      const entry = mockState.entries.find((item) => item.id === message.payload.id) ?? null;
+      return ok({ entry });
+    }
+
+    case MESSAGE_TYPES.ENTRY_ADD: {
+      if (mockState.locked) {
+        return err("VAULT_LOCKED", "Vault is locked.");
+      }
+      const id = `entry-${Date.now()}`;
+      const created: VaultEntry = { id, ...message.payload.entry };
+      mockState.entries = [created, ...mockState.entries];
+      return ok({ entry: created });
+    }
+
+    case MESSAGE_TYPES.ENTRY_UPDATE: {
+      if (mockState.locked) {
+        return err("VAULT_LOCKED", "Vault is locked.");
+      }
+      const entry = message.payload.entry;
+      const exists = mockState.entries.some((item) => item.id === entry.id);
+      if (!exists) {
+        return err("ENTRY_NOT_FOUND", "Entry not found.");
+      }
+      mockState.entries = mockState.entries.map((item) => (item.id === entry.id ? entry : item));
+      return ok({ entry });
+    }
+
+    case MESSAGE_TYPES.ENTRY_DELETE: {
+      if (mockState.locked) {
+        return err("VAULT_LOCKED", "Vault is locked.");
+      }
+      const exists = mockState.entries.some((item) => item.id === message.payload.id);
+      if (!exists) {
+        return err("ENTRY_NOT_FOUND", "Entry not found.");
+      }
+      mockState.entries = mockState.entries.filter((item) => item.id !== message.payload.id);
+      return ok({ id: message.payload.id });
+    }
+
+    default: {
+      return err("UNKNOWN_MESSAGE", "Message type is not supported.");
+    }
+  }
+};
+
+chrome.runtime.onMessage.addListener((message: AnyRequestMessage, _sender, sendResponse) => {
+  const result = handleMessage(message);
+  sendResponse(result as MessageResponseMap[AnyRequestMessage["type"]]);
+  return true;
 });
