@@ -1,0 +1,10 @@
+{
+  "name": "chrome-extension-vault",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo \"TODO: configure build\"",
+    "dev": "echo \"TODO: configure dev\""
+  }
+}
