@@ -20,6 +20,31 @@ body {
   gap: 12px;
 }
 
+.toast {
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.toast.info {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+.toast.success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.toast.error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
 .row {
   display: flex;
   justify-content: flex-end;
@@ -91,4 +116,133 @@ button.primary:hover {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
+}
+
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+
+.error {
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.toolbar h1 {
+  margin: 0;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.entry-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 210px;
+  overflow: auto;
+}
+
+.entry-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.entry-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+}
+
+.entry-item strong {
+  font-size: 13px;
+}
+
+.entry-item span {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.inline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.secret {
+  font-family: "Courier New", monospace;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 7px 8px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.detail-grid dt {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.detail-grid dd {
+  margin: 0;
+  font-size: 13px;
+  word-break: break-word;
 }
