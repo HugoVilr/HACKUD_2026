@@ -46,7 +46,7 @@ G8keeper is a browser-based password vault leveraging the Web Crypto API for cli
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         POPUP UI (React/TS)                     │
+│                    POPUP UI (TypeScript modular)                │
 │  ┌────────────────┐ ┌──────────────┐ ┌────────────────────┐    │
 │  │ CreateVault    │ │ Unlock       │ │ VaultList          │    │
 │  │ + Recovery     │ │ + Recovery   │ │ + EntryDetail      │    │
@@ -127,26 +127,28 @@ G8keeper is a browser-based password vault leveraging the Web Crypto API for cli
 ### Vault Encryption
 
 **Algorithm**: AES-256-GCM  
-**Key Derivation**: PBKDF2-SHA256  
-**Iterations**: 600,000 (OWASP 2023)  
-**Salt**: 128-bit random (per vault)  
-**IV**: 96-bit random (per encryption operation)  
-**Tag**: 128-bit authentication tag  
+**Key Derivation**: PBKDF2-SHA-512  
+**Iterations**: 1,000,000  
+**Salt**: 256-bit random (per vault)  
+**IV**: 2x 96-bit random (double AES-256-GCM)  
+**Tag**: 128-bit authentication tag per GCM layer  
 
 **Encrypted Structure**:
 ```json
 {
-  "version": 1,
+  "version": 2,
   "kdf": {
-    "kind": "pbkdf2-sha256",
+    "kind": "pbkdf2-sha512",
     "salt_b64": "base64-encoded-salt",
-    "iterations": 600000
+    "iterations": 1000000
   },
   "cipher": {
-    "kind": "aes-256-gcm",
-    "iv_b64": "base64-encoded-iv"
+    "kind": "aes-256-gcm-double",
+    "iv_inner_b64": "base64-encoded-iv-inner",
+    "iv_outer_b64": "base64-encoded-iv-outer"
   },
-  "ciphertext_b64": "base64-encoded-encrypted-vault-data"
+  "ciphertext_b64": "base64-encoded-encrypted-vault-data",
+  "hmac_b64": "base64-encoded-hmac-sha512"
 }
 ```
 
@@ -260,19 +262,26 @@ HACKUD_2026/
 │   │   ├── credential-assistant.ts # Signup detection + auto-save
 │   │   └── credential-assistant.js # Compiled output
 │   ├── popup/
-│   │   ├── popup.tsx              # Main popup application
-│   │   ├── styles.css             # Cyberpunk terminal theme
+│   │   ├── main.tsx               # Popup entrypoint (build target)
+│   │   ├── popup.tsx              # Popup composition/wiring
+│   │   ├── app/
+│   │   │   ├── state/
+│   │   │   │   ├── popupState.ts
+│   │   │   │   └── popupStore.ts
+│   │   │   ├── actions/
+│   │   │   │   └── vaultActions.ts
+│   │   │   └── handlers/
+│   │   │       ├── types.ts
+│   │   │       ├── popupHandlers.ts
+│   │   │       ├── vaultHandlers.ts
+│   │   │       └── entryHandlers.ts
 │   │   ├── ui/
 │   │   │   ├── components/
 │   │   │   │   ├── Button.tsx
 │   │   │   │   ├── Input.tsx
 │   │   │   │   └── Toast.tsx
 │   │   │   └── screens/
-│   │   │       ├── CreateVault.tsx
-│   │   │       ├── Unlock.tsx
-│   │   │       ├── VaultList.tsx
-│   │   │       ├── EntryDetail.tsx
-│   │   │       └── EntryForm.tsx
+│   │   │       └── renderers.ts
 │   │   └── api/
 │   │       └── backgroundClient.ts # Message passing abstraction
 │   ├── report/
@@ -283,7 +292,7 @@ HACKUD_2026/
 │   │   ├── messages.ts            # Type-safe message contracts
 │   │   ├── b64.ts                 # Base64 encoding/decoding
 │   │   └── time.ts                # ISO timestamp utilities
-│   └── manifest.json              # Chrome Extension Manifest v3
+├── manifest.json                  # Chrome Extension Manifest v3
 ├── tests/
 │   ├── generator.test.ts          # Password generator tests
 │   ├── hibp-parser.test.ts        # HIBP response parsing tests
@@ -298,6 +307,7 @@ HACKUD_2026/
 │   ├── autofill.md                # Autofill engine documentation
 │   ├── hibp-audit.md              # Vault leak audit + report documentation
 │   ├── hibp.md                    # HIBP integration documentation
+│   ├── popup-architecture.md      # Popup modular architecture
 │   └── README.md                  # Documentation index
 ├── scripts/
 │   └── run-tests.mjs              # Test runner
@@ -316,7 +326,7 @@ HACKUD_2026/
 **Protected against**:
 - ✅ Network interception (end-to-end encryption)
 - ✅ Compromised server (zero-knowledge architecture)
-- ✅ Brute force attacks (600k PBKDF2 iterations + rate limiting)
+- ✅ Brute force attacks (PBKDF2-SHA-512 1M iterations + rate limiting)
 - ✅ Rainbow tables (per-vault salts + recovery code hashing)
 - ✅ Timing attacks (constant-time recovery code comparison)
 - ✅ Statistical bias (rejection sampling in PRNG)
@@ -336,7 +346,7 @@ HACKUD_2026/
 
 **Layer 1: Cryptography**
 - AES-256-GCM (authenticated encryption)
-- PBKDF2-SHA256 (600k iterations)
+- PBKDF2-SHA-512 (1M iterations)
 - HKDF-SHA512 (recovery code derivation)
 - SHA-256 (recovery code storage)
 
@@ -438,38 +448,16 @@ npm test
 # - Credential assistant flow
 ```
 
-**Test Results** (22 tests):
-```
-✔ manifest declares content script for autofill
-✔ manifest includes required permission for scripting
-✔ build script compiles autofill content script
-✔ autofill source file exists
-✔ autofill style file exists
-✔ credential-assistant defines unlock wait flow
-✔ credential-assistant closes signup notification
-✔ credential-assistant allows signup when locked
-✔ popup closes extension window after unlock
-✔ service worker stores signup popup context
-✔ generatePassword enforces min/max length
-✔ generatePassword avoidAmbiguous excludes O0Il1
-✔ parseHibpRangeResponse returns 0 when suffix not present
-✔ parseHibpRangeResponse matches suffix case-insensitively
-✔ parseHibpRangeResponse tolerates CRLF and whitespace
-✔ integration: HIBP_CHECK calls range endpoint
-✔ sw: blocks messages from invalid sender id
-✔ sw: blocks non-allowlisted content-script message
-✔ sw: allows content-script UI_OPEN_POPUP
-✔ sw: allows content-script ENTRY_GET_SECRET
-✔ sw: normal extension page can call VAULT_STATUS
-✔ integration: vault create/unlock/entries/lock
-```
+**Test Results**:
+- Current local suite: **8/8 passing** (`npm test`)
+- Includes unit and integration checks for vault flow, SW origin guard, popup handlers, autofill infra, generator and HIBP parsing.
 
 ---
 
 ## Performance Characteristics
 
 ### Key Derivation
-- **PBKDF2-SHA256 (600k iterations)**:
+- **PBKDF2-SHA-512 (1M iterations)**:
   - Desktop: ~500ms
   - Laptop: ~800ms
   - Mobile: N/A (Chrome extension unsupported)
@@ -576,7 +564,7 @@ SOFTWARE.
 **Team**: [Your Team Name]  
 **Status**: Production-ready implementation  
 **Lines of Code**: ~8,500 (excluding tests)  
-**Test Coverage**: 22 tests passing
+**Test Coverage**: 8 tests passing
 
 **Evaluation Criteria**:
 - ✅ **Security Design**: Military-grade encryption, zero-knowledge architecture, defense-in-depth
@@ -586,5 +574,4 @@ SOFTWARE.
 
 ---
 
-**Built with ❤️ and cryptographic paranoia**
-**Built with ❤️ and cryptographic paranoia**
+**Built with cryptographic paranoia**

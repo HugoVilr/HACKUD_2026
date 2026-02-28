@@ -40,8 +40,10 @@ Contratos tipados en:
   - Orquestación de auditoría, scheduler, persistencia de estado.
 - `src/background/sw.ts`
   - Router de mensajes con validación de origen.
+- `src/popup/app/handlers/vaultHandlers.ts`
+  - Acción `run-hibp-audit` y apertura de la página de reporte.
 - `src/popup/popup.tsx`
-  - Botón `Leak audit` y apertura de la página de reporte.
+  - Wiring de eventos del popup.
 - `src/report/report.html`
   - Estructura visual del reporte.
 - `src/report/report.tsx`
@@ -70,4 +72,3 @@ Si no existe `report.js`, la vista puede quedarse en `Inicializando...` sin actu
 - Errores HIBP intermitentes:
   - posible rate limit (`429`) o rechazo (`403`) del endpoint de dominio.
   - consultar bloque `Debug` en el reporte para ver detalles.
-
