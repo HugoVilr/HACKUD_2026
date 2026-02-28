@@ -220,6 +220,13 @@ const refreshStatus = async () => {
 
   state.vaultName = res.data?.vaultName || "";
 
+  // CRITICAL: Si hay recovery codes pendientes, NO cambiar route ni renderizar
+  // El usuario debe completar el flujo de recovery codes primero
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    // Solo actualizar vaultName, no cambiar route ni renderizar
+    return;
+  }
+
   if (!res.data?.hasVault) {
     setRoute("NO_VAULT");
     state.entries = [];
@@ -660,6 +667,8 @@ root.addEventListener("submit", async (event) => {
       if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
         state.recoveryCodes = res.data.recoveryCodes;
         state.recoveryCodesAcknowledged = false;
+        state.recoveryCodesSaved = false;
+        await saveRecoveryCodesContext();
         render(); // Re-render para mostrar los recovery codes
         return;
       }
