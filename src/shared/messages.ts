@@ -145,11 +145,16 @@ export interface HibpAuditSummary {
   domainSafe: number;
   domainErrors: number;
   domainSkipped: number;
+  emailPwned: number;
+  emailSafe: number;
+  emailErrors: number;
+  emailSkipped: number;
 }
 
 export interface HibpAuditItem {
   entryId: string;
   title: string;
+  username?: string;
   count: number | null;
   compromised: boolean;
   status: "ok" | "error";
@@ -159,6 +164,11 @@ export interface HibpAuditItem {
   domainBreachCount: number | null;
   domainBreaches?: string[];
   domainError?: string;
+  email?: string;
+  emailStatus: "pwned" | "safe" | "error" | "skipped";
+  emailBreachCount: number | null;
+  emailBreaches?: string[];
+  emailError?: string;
 }
 
 export interface HibpAuditScheduleData {

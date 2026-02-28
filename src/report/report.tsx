@@ -3,12 +3,13 @@ const stateEl = document.getElementById("audit-state");
 const progressEl = document.getElementById("audit-progress");
 const compromisedEl = document.getElementById("audit-compromised");
 const safeEl = document.getElementById("audit-safe");
+const emailPwnedEl = document.getElementById("audit-email-pwned");
+const emailSafeEl = document.getElementById("audit-email-safe");
 const scheduleLastEl = document.getElementById("schedule-last");
 const scheduleNextEl = document.getElementById("schedule-next");
 const metaEl = document.getElementById("audit-meta");
 const fillEl = document.getElementById("progress-fill");
 const refreshBtn = document.getElementById("refresh-btn");
-const debugEl = document.getElementById("debug-log");
 
 const search = new URLSearchParams(window.location.search);
 let auditId = String(search.get("audit") || "").trim();
@@ -16,19 +17,11 @@ let auditId = String(search.get("audit") || "").trim();
 let pollTimer = null;
 let done = false;
 
-const debug = (msg, data) => {
-  const line = `[${new Date().toLocaleTimeString()}] ${msg}${data === undefined ? "" : ` ${JSON.stringify(data)}`}`;
-  console.debug("[G8keeper][HIBP_REPORT]", msg, data);
-  if (debugEl) {
-    debugEl.textContent = `${debugEl.textContent}\n${line}`;
-  }
-};
-
 const setErrorRow = (message) => {
   rowsEl.textContent = "";
   const tr = document.createElement("tr");
   const td = document.createElement("td");
-  td.colSpan = 7;
+  td.colSpan = 10;
   td.className = "muted";
   td.textContent = message;
   tr.appendChild(td);
@@ -51,34 +44,14 @@ const formatRemaining = (targetMs, nowMs) => {
 
 const message = async (type, payload) => {
   const req = payload === undefined ? { type } : { type, payload };
-  debug("sendMessage()", req);
   try {
     const res = await chrome.runtime.sendMessage(req);
-    debug("response", { type, ok: res?.ok, error: res?.error?.code });
     if (!res || typeof res.ok !== "boolean") {
       throw new Error("Respuesta invalida de background");
     }
     return res;
   } catch (error) {
-    debug("sendMessage error", { type, error: String(error?.message || error) });
     throw error;
-  }
-};
-
-const debugStorageSnapshot = async () => {
-  try {
-    const key = `g8keeper_hibp_audit_${auditId}`;
-    const data = await chrome.storage.session.get(key);
-    const record = data?.[key];
-    debug("storage.session snapshot", {
-      key,
-      exists: Boolean(record),
-      state: record?.audit?.state,
-      processed: record?.audit?.processed,
-      total: record?.audit?.total,
-    });
-  } catch (error) {
-    debug("storage.session error", { error: String(error?.message || error) });
   }
 };
 
@@ -87,6 +60,12 @@ const renderSummary = (audit) => {
   progressEl.textContent = `${audit.processed} / ${audit.total}`;
   compromisedEl.textContent = String(audit.compromised);
   safeEl.textContent = String(audit.safe);
+  if (emailPwnedEl) {
+    emailPwnedEl.textContent = String(audit.emailPwned ?? 0);
+  }
+  if (emailSafeEl) {
+    emailSafeEl.textContent = String(audit.emailSafe ?? 0);
+  }
 
   const percent = audit.total > 0
     ? Math.min(100, Math.round((audit.processed / audit.total) * 100))
@@ -152,6 +131,28 @@ const domainBadge = (item) => {
   return span;
 };
 
+const emailBadge = (item) => {
+  const span = document.createElement("span");
+  span.className = "badge";
+  if (item.emailStatus === "pwned") {
+    span.classList.add("badge--warn");
+    span.textContent = "PWNED";
+    return span;
+  }
+  if (item.emailStatus === "safe") {
+    span.classList.add("badge--ok");
+    span.textContent = "OK";
+    return span;
+  }
+  if (item.emailStatus === "error") {
+    span.classList.add("badge--err");
+    span.textContent = "ERROR";
+    return span;
+  }
+  span.textContent = "-";
+  return span;
+};
+
 const renderRows = (items) => {
   rowsEl.textContent = "";
   if (!Array.isArray(items) || items.length === 0) {
@@ -163,9 +164,11 @@ const renderRows = (items) => {
     const score = (item) => {
       if (item.status === "error") return 0;
       if (item.compromised) return 1;
-      if (item.domainStatus === "error") return 2;
-      if (item.domainStatus === "pwned") return 3;
-      return 4;
+      if (item.emailStatus === "error") return 2;
+      if (item.emailStatus === "pwned") return 3;
+      if (item.domainStatus === "error") return 4;
+      if (item.domainStatus === "pwned") return 5;
+      return 6;
     };
     const delta = score(a) - score(b);
     if (delta !== 0) return delta;
@@ -207,8 +210,28 @@ const renderRows = (items) => {
     }
     tr.appendChild(domainBreachesTd);
 
+    const emailTd = document.createElement("td");
+    emailTd.textContent = item.email || item.username || "-";
+    tr.appendChild(emailTd);
+
+    const emailStateTd = document.createElement("td");
+    emailStateTd.appendChild(emailBadge(item));
+    tr.appendChild(emailStateTd);
+
+    const emailBreachesTd = document.createElement("td");
+    if (Array.isArray(item.emailBreaches) && item.emailBreaches.length > 0) {
+      emailBreachesTd.textContent = `${item.emailBreachCount ?? item.emailBreaches.length} (${item.emailBreaches.join(", ")})`;
+    } else if (item.emailStatus === "safe") {
+      emailBreachesTd.textContent = "0";
+    } else if (item.emailStatus === "error") {
+      emailBreachesTd.textContent = "-";
+    } else {
+      emailBreachesTd.textContent = "-";
+    }
+    tr.appendChild(emailBreachesTd);
+
     const errorTd = document.createElement("td");
-    errorTd.textContent = item.error || item.domainError || "-";
+    errorTd.textContent = item.error || item.domainError || item.emailError || "-";
     tr.appendChild(errorTd);
 
     rowsEl.appendChild(tr);
@@ -260,7 +283,6 @@ const refresh = async () => {
       await fetchStatus();
     }
   } catch (error) {
-    await debugStorageSnapshot();
     setErrorRow(String(error?.message || error));
   } finally {
     refreshBtn.disabled = false;
@@ -286,8 +308,6 @@ const rerunAuditNow = async () => {
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("audit", auditId);
     history.replaceState({}, "", nextUrl.toString());
-
-    debug("manual rerun", { auditId });
     setErrorRow("Re-ejecutando auditoría...");
     await refresh();
   } finally {
@@ -299,10 +319,6 @@ if (!auditId) {
   setErrorRow("Falta auditId en la URL.");
   stateEl.textContent = "invalid";
 } else {
-  if (debugEl) {
-    debugEl.textContent = `[${new Date().toLocaleTimeString()}] auditId=${auditId}`;
-  }
-  debug("report init", { auditId, href: window.location.href });
   refresh().catch(() => undefined);
   pollTimer = setInterval(() => {
     refresh().catch(() => undefined);

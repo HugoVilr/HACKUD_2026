@@ -26,9 +26,10 @@ body {
 }
 
 .report {
-  max-width: 1040px;
-  margin: 20px auto;
-  padding: 0 14px 18px;
+  width: min(96vw, 1600px);
+  max-width: none;
+  margin: 14px auto;
+  padding: 0 10px 18px;
 }
 
 .report__header h1 {
@@ -97,28 +98,6 @@ body {
   margin-top: 10px;
 }
 
-.debug {
-  margin-top: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(154, 248, 157, 0.06);
-  padding: 8px 10px;
-}
-
-.debug summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 12px;
-}
-
-#debug-log {
-  margin: 8px 0 0;
-  white-space: pre-wrap;
-  font-size: 11px;
-  line-height: 1.35;
-  color: #b9e9bb;
-}
-
 button {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -147,7 +126,7 @@ button:hover {
 .audit-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 720px;
+  min-width: 1080px;
 }
 
 .audit-table th,
