@@ -1,52 +1,39 @@
-const state = {
-  route: "NO_VAULT",
-  screen: "LIST",
-  vaultName: "",
-  search: "",
-  selectedEntryId: null,
-  formPasswordVisible: false,
-  detailPasswordVisible: false,
-  selectedSecret: null,
-  unlockMasterDraft: "",
-  toastMessage: "",
-  toastTone: "info",
-  entries: [],
-  showDeleteConfirm: false,
-  recoveryCodes: null, // Códigos de recuperación (solo después de crear vault)
-  recoveryCodesAcknowledged: false,
-  recoveryCodesSaved: false, // Se marca true cuando el usuario copia o exporta los códigos
-  showRecoveryCodeUnlock: false // Mostrar opción de desbloqueo con recovery code
-};
+import {
+  consumeSignupUnlockContext,
+  ensureSelectedSecret as loadSelectedSecret,
+  refreshEntries as loadEntries,
+  refreshStatus as loadStatus,
+  restoreRecoveryCodesContext as restoreRecoveryCodes,
+  saveRecoveryCodesContext as saveRecoveryCodes,
+  sendApiMessage,
+} from "./app/actions/vaultActions.ts";
+import { attachPopupClickHandler, attachPopupSubmitHandler } from "./app/handlers/popupHandlers.ts";
+import { createInitialPopupState, RECOVERY_CODES_KEY, routeLabels, type ToastTone } from "./app/state/popupState.ts";
+import { getSelectedEntry as readSelectedEntry, selectEntry as setSelectedEntry } from "./app/state/popupStore.ts";
+import { renderRouteBody } from "./ui/screens/renderers.ts";
 
-const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
-const RECOVERY_CODES_KEY = "g8keeper_recovery_codes_context";
+const state = createInitialPopupState();
 
 const root = document.getElementById("app");
 if (!root) {
   throw new Error("Popup root not found");
 }
 
-const routeLabels = {
-  NO_VAULT: "No Vault",
-  LOCKED: "Locked",
-  UNLOCKED: "Unlocked"
-};
-
-const ASCII_ART = String.raw`
+const ASCII_ART = `
                                                
  (        (          )                         
- )\ )     )\ (    ( /(   (   (         (  (    
-(()/(    ((_))\   )\()) ))\ ))\`  )   ))\ )(   
- /(_))_    _((_) ((_)\ /((_)((_)(/(  /((_|()\  
-(_)) __|  ( _ )  | |(_|_))(_))((_)_\(_))  ((_) 
-  | (_ |  / _ \  | / // -_) -_) '_ \) -_)| '_| 
-   \___|  \___/  |_\_\\___\___| .__/\___||_|   
+ )\\ )     )\\ (    ( /(   (   (         (  (    
+(()/(    ((_))\\   )\\()) ))\\ ))\\  )   ))\\ )(   
+ /(_))_    _((_) ((_ )\\ /((_)((_)(/(  /((_|()\\  
+(_)) __|  ( _ )  | |(_|_))(_))((_)_\\(_))  ((_) 
+  | (_ |  / _ \\  | / // -_) -_) '_ \\) -_)| '_| 
+   \\___|  \\___/  |_\\_\\\\___\\___| .__/\\___||_|   
                               |_|              
 `;
 
-let toastTimeoutId = null;
+let toastTimeoutId: number | null = null;
 
-const escapeHtml = (value) => {
+const escapeHtml = (value: unknown): string => {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -55,36 +42,29 @@ const escapeHtml = (value) => {
     .replaceAll("'", "&#039;");
 };
 
-const setToast = (message, tone = "info") => {
-  state.toastMessage = message;
-  state.toastTone = tone;
-  render();
-
-  if (toastTimeoutId) {
-    clearTimeout(toastTimeoutId);
+const maskPassword = (value: string): string => {
+  if (!value) {
+    return "-";
   }
-  toastTimeoutId = setTimeout(() => {
-    state.toastMessage = "";
-    state.toastTone = "info";
-    render();
-    toastTimeoutId = null;
-  }, 1800);
+  return "*".repeat(Math.max(8, value.length));
 };
 
-const focusUnlockInput = () => {
+const focusUnlockInput = (): void => {
   if (state.route !== "LOCKED") {
     return;
   }
+
   const unlockInput = root.querySelector('form[data-action="unlock-vault"] input[name="master"]');
   if (!(unlockInput instanceof HTMLInputElement)) {
     return;
   }
+
   unlockInput.focus();
   const caret = unlockInput.value.length;
   unlockInput.setSelectionRange(caret, caret);
 };
 
-const copyText = async (value) => {
+const copyText = async (value: string): Promise<void> => {
   if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     await navigator.clipboard.writeText(value);
     return;
@@ -104,510 +84,25 @@ const copyText = async (value) => {
   }
 };
 
-const maskPassword = (value) => {
-  if (!value) {
-    return "-";
-  }
-  return "*".repeat(Math.max(8, value.length));
-};
-
-const setRoute = (route) => {
-  state.route = route;
-  state.formPasswordVisible = false;
-  state.detailPasswordVisible = false;
-  state.selectedSecret = null;
-  state.search = "";
-  state.screen = "LIST";
-  state.selectedEntryId = null;
-};
-
-const selectEntry = (entryId) => {
-  state.selectedEntryId = entryId;
-  state.detailPasswordVisible = false;
-  state.selectedSecret = null;
-  state.screen = "DETAIL";
-};
-
-const getSelectedEntry = () => {
-  return state.entries.find((entry) => entry.id === state.selectedEntryId) ?? null;
-};
-
-const sendApiMessage = async (type, payload) => {
-  try {
-    const message = payload === undefined ? { type } : { type, payload };
-    const res = await chrome.runtime.sendMessage(message);
-    if (!res || typeof res.ok !== "boolean") {
-      throw new Error("api-bad-response");
-    }
-    return res;
-  } catch (error) {
-    throw error;
-  }
-};
-
-const consumeSignupUnlockContext = async () => {
-  try {
-    const data = await chrome.storage.session.get(POPUP_CONTEXT_KEY);
-    const context = data?.[POPUP_CONTEXT_KEY];
-    if (!context || typeof context !== "object") {
-      return false;
-    }
-    const isSignupContext = context.source === "signup";
-    const expiresAt = Number(context.expiresAt || 0);
-    const isExpired = !Number.isFinite(expiresAt) || expiresAt < Date.now();
-    await chrome.storage.session.remove(POPUP_CONTEXT_KEY);
-    return isSignupContext && !isExpired;
-  } catch {
-    return false;
-  }
-};
-
-// Guardar estado de recovery codes para que persista entre aperturas del popup
-const saveRecoveryCodesContext = async () => {
-  if (!state.recoveryCodes || state.recoveryCodes.length === 0) {
-    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
-    return;
-  }
-  await chrome.storage.session.set({
-    [RECOVERY_CODES_KEY]: {
-      codes: state.recoveryCodes,
-      acknowledged: state.recoveryCodesAcknowledged,
-      saved: state.recoveryCodesSaved,
-      vaultName: state.vaultName
-    }
-  });
-};
-
-// Restaurar estado de recovery codes al abrir popup
-const restoreRecoveryCodesContext = async () => {
-  try {
-    const data = await chrome.storage.session.get(RECOVERY_CODES_KEY);
-    const context = data?.[RECOVERY_CODES_KEY];
-    if (context && Array.isArray(context.codes) && context.codes.length > 0) {
-      state.recoveryCodes = context.codes;
-      state.recoveryCodesAcknowledged = Boolean(context.acknowledged);
-      state.recoveryCodesSaved = Boolean(context.saved);
-      if (context.vaultName) {
-        state.vaultName = context.vaultName;
-      }
-    }
-  } catch (err) {
-    // Silent error - non-critical context restore
-  }
-};
-
-const refreshEntries = async () => {
-  const res = await sendApiMessage("ENTRY_LIST");
-  if (!res.ok) {
-    state.entries = [];
-    render();
-    setToast(res.error?.message || "No se pudieron cargar las entries.", "error");
-    return false;
-  }
-
-  state.entries = Array.isArray(res.data?.entries) ? res.data.entries : [];
+const setToast = (message: string, tone: ToastTone = "info"): void => {
+  state.toastMessage = message;
+  state.toastTone = tone;
   render();
-  return true;
-};
 
-const refreshStatus = async () => {
-  const res = await sendApiMessage("VAULT_STATUS");
-  if (!res.ok) {
+  if (toastTimeoutId) {
+    clearTimeout(toastTimeoutId);
+  }
+  toastTimeoutId = setTimeout(() => {
+    state.toastMessage = "";
+    state.toastTone = "info";
     render();
-    setToast(res.error?.message || "No se pudo obtener el estado del vault.", "error");
-    return;
-  }
-
-  state.vaultName = res.data?.vaultName || "";
-
-  // CRITICAL: Si hay recovery codes pendientes, NO cambiar route ni renderizar
-  // El usuario debe completar el flujo de recovery codes primero
-  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
-    // Solo actualizar vaultName, no cambiar route ni renderizar
-    return;
-  }
-
-  if (!res.data?.hasVault) {
-    setRoute("NO_VAULT");
-    state.entries = [];
-    render();
-    return;
-  }
-
-  if (res.data?.locked) {
-    setRoute("LOCKED");
-    state.entries = [];
-    render();
-    return;
-  }
-
-  setRoute("UNLOCKED");
-  await refreshEntries();
+    toastTimeoutId = null;
+  }, 1800);
 };
 
-const ensureSelectedSecret = async () => {
-  const id = state.selectedEntryId;
-  if (!id) {
-    return null;
-  }
-
-  if (state.selectedSecret?.id === id) {
-    return state.selectedSecret;
-  }
-
-  const res = await sendApiMessage("ENTRY_GET_SECRET", { id });
-  if (!res.ok) {
-    setToast(res.error?.message || "No se pudo obtener el secreto.", "error");
-    return null;
-  }
-
-  state.selectedSecret = res.data?.secret ?? null;
-  render();
-  return state.selectedSecret;
-};
-
-const renderCreateVault = () => {
-  // Si acabamos de crear el vault y tenemos recovery codes, mostrarlos
-  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
-    return `
-      <div class="recovery-codes-screen">
-        <h1>🔐 Códigos de Recuperación</h1>
-        <p class="muted warning-text">
-          ⚠️ <strong>IMPORTANTE:</strong> Guarda estos códigos en un lugar seguro.
-          Son la única forma de recuperar tu vault si olvidas tu contraseña maestra.
-        </p>
-
-        <div class="recovery-codes-list">
-          ${state.recoveryCodes.map((code, i) => `
-            <div class="recovery-code-item">
-              <span class="code-number">${i + 1}.</span>
-              <code class="code-text">${escapeHtml(code)}</code>
-            </div>
-          `).join('')}
-        </div>
-
-        <div class="recovery-codes-info">
-          <ul>
-            <li>✓ Cada código puede usarse <strong>UNA SOLA VEZ</strong></li>
-            <li>✓ Tienen 256 bits de entropía (ultra seguros)</li>
-            <li>✓ NO los compartas con nadie</li>
-            <li>✓ Imprímelos y guárdalos físicamente</li>
-          </ul>
-        </div>
-
-        <div class="stack">
-          <button type="button" data-action="copy-recovery-codes" class="secondary">
-            📋 Copiar todos
-          </button>
-          <button type="button" data-action="export-recovery-codes" class="secondary">
-            💾 Exportar como .txt
-          </button>
-          
-          <label class="field checkbox-field">
-            <input type="checkbox" data-action="toggle-recovery-ack" ${state.recoveryCodesAcknowledged ? 'checked' : ''} />
-            <span>He guardado mis códigos de recuperación en un lugar seguro</span>
-          </label>
-
-          <button 
-            type="button" 
-            data-action="done-recovery-codes" 
-            class="primary" 
-            ${!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged ? 'disabled' : ''}
-          >
-            Continuar
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  return `
-    <h1>Create vault</h1>
-    <p class="muted">Crea una master password para tu vault local.</p>
-    <form data-action="create-vault" class="stack">
-      <label class="field">
-        <span>Nombre (opcional)</span>
-        <input name="vaultName" type="text" placeholder="Mi Vault" maxlength="40" />
-      </label>
-      <label class="field">
-        <span>Master password</span>
-        <input name="master" type="password" required minlength="8" />
-      </label>
-      <label class="field">
-        <span>Confirmar master</span>
-        <input name="confirm" type="password" required minlength="8" />
-      </label>
-      <button class="primary" type="submit">Crear vault</button>
-    </form>
-  `;
-};
-
-const renderUnlock = () => {
-  const vaultHint = state.vaultName
-    ? `Vault: ${escapeHtml(state.vaultName)}`
-    : "Vault local detectado. Introduce tu master password.";
-
-  if (state.showRecoveryCodeUnlock) {
-    return `
-      <h1>Recovery Code</h1>
-      <p class="muted">Introduce uno de tus códigos de recuperación</p>
-      <form data-action="unlock-recovery" class="stack">
-        <label class="field">
-          <span>Recovery Code</span>
-          <input name="recoveryCode" type="text" required placeholder="Pega aquí tu recovery code" />
-        </label>
-        <button class="primary" type="submit">Desbloquear</button>
-        <button type="button" data-action="cancel-recovery" class="secondary">Volver a master password</button>
-      </form>
-    `;
-  }
-
-  return `
-    <h1>Unlock vault</h1>
-    <p class="muted">${vaultHint}</p>
-    <form data-action="unlock-vault" class="stack">
-      <label class="field">
-        <span>Master password</span>
-        <input name="master" type="password" required value="${escapeHtml(state.unlockMasterDraft)}" />
-      </label>
-      <button class="primary" type="submit">Desbloquear</button>
-      <button type="button" data-action="show-recovery" class="secondary">¿Olvidaste tu contraseña?</button>
-    </form>
-  `;
-};
-
-const renderList = () => {
-  // Si está mostrando el formulario de confirmación de eliminación
-  if (state.showDeleteConfirm) {
-    return `
-      <div class="entries-screen">
-        <div class="toolbar">
-          <h1>⚠️ Eliminar Vault</h1>
-          <button type="button" data-action="cancel-delete" class="primary">Cancelar</button>
-        </div>
-
-        <div class="stack">
-          <p class="muted warning-text">
-            ⚠️ ADVERTENCIA: Esta acción es IRREVERSIBLE. Se eliminarán todas tus contraseñas guardadas.
-          </p>
-          
-          <form data-action="confirm-delete" class="stack">
-            <label class="field">
-              <span>Master password</span>
-              <input name="master" type="password" required />
-            </label>
-            
-            <label class="field">
-              <span>Escribe "eliminar" para confirmar</span>
-              <input name="confirmText" type="text" required placeholder="eliminar" />
-            </label>
-            
-            <button class="danger-button" type="submit">
-              Eliminar Vault Permanentemente
-            </button>
-          </form>
-        </div>
-      </div>
-    `;
-  }
-
-  const needle = state.search.trim().toLowerCase();
-  const visibleEntries = state.entries.filter((entry) => {
-    if (!needle) {
-      return true;
-    }
-    return (
-      String(entry.title || "").toLowerCase().includes(needle) ||
-      String(entry.domain || "").toLowerCase().includes(needle) ||
-      String(entry.username || "").toLowerCase().includes(needle) ||
-      String(entry.notes || "").toLowerCase().includes(needle)
-    );
-  });
-
-  return `
-    <div class="entries-screen">
-      <div class="toolbar">
-        <h1>Vault entries</h1>
-        <div class="toolbar-actions">
-          <button type="button" data-action="to-add" class="primary">+ Add</button>
-          <button type="button" data-action="run-hibp-audit">Leak audit</button>
-          <button type="button" data-action="lock">Lock</button>
-          <button type="button" data-action="show-delete" class="caution-button">Eliminar Vault</button>
-        </div>
-      </div>
-
-      <label class="field">
-        <span>Buscar</span>
-        <input
-          data-action="search"
-          type="search"
-          value="${escapeHtml(state.search)}"
-          placeholder="Titulo, user o nota"
-        />
-      </label>
-
-      <ul class="entry-list">
-        ${
-          visibleEntries.length === 0
-            ? '<li class="entry-empty">No hay resultados para la busqueda.</li>'
-            : visibleEntries
-                .map((entry) => {
-                  return `
-                    <li>
-                      <button type="button" data-action="open-entry" data-entry-id="${entry.id}" class="entry-item">
-                        <strong>${escapeHtml(entry.title || "")}</strong>
-                        <span>${escapeHtml(entry.username || "sin usuario")}</span>
-                      </button>
-                    </li>
-                  `;
-                })
-                .join("")
-        }
-      </ul>
-    </div>
-  `;
-};
-
-const renderEntryForm = (mode) => {
-  const entry = mode === "edit" ? getSelectedEntry() : null;
-  const title = entry?.title ?? "";
-  const domain = entry?.domain ?? "";
-  const username = entry?.username ?? "";
-  const password = mode === "edit" ? state.selectedSecret?.password ?? "" : "";
-  const notes = entry?.notes ?? "";
-
-  return `
-    <div class="toolbar">
-      <h1>${mode === "edit" ? "Edit entry" : "Add entry"}</h1>
-      <button type="button" data-action="to-list">Cancelar</button>
-    </div>
-
-    <form data-action="save-entry" data-mode="${mode}" class="stack">
-      <label class="field">
-        <span>Titulo</span>
-        <input name="title" type="text" required maxlength="60" value="${escapeHtml(title)}" />
-      </label>
-      <label class="field">
-        <span>Dominio (opcional)</span>
-        <input name="domain" type="text" maxlength="120" placeholder="ej: github.com" value="${escapeHtml(domain)}" />
-      </label>
-      <label class="field">
-        <span>Usuario</span>
-        <input name="username" type="text" maxlength="80" value="${escapeHtml(username)}" />
-      </label>
-      <label class="field">
-        <span>Password</span>
-        <div class="inline-row">
-          <input
-            name="password"
-            type="${state.formPasswordVisible ? "text" : "password"}"
-            required
-            maxlength="100"
-            value="${escapeHtml(password)}"
-          />
-          <button type="button" data-action="toggle-form-password">
-            ${state.formPasswordVisible ? "Ocultar" : "Revelar"}
-          </button>
-        </div>
-      </label>
-      <label class="field">
-        <span>Notas</span>
-        <textarea name="notes" rows="3" maxlength="280">${escapeHtml(notes)}</textarea>
-      </label>
-      <button class="primary" type="submit">Guardar</button>
-    </form>
-  `;
-};
-
-const renderEntryDetail = () => {
-  const entry = getSelectedEntry();
-  if (!entry) {
-    state.screen = "LIST";
-    return renderList();
-  }
-
-  const password = state.selectedSecret?.id === entry.id ? state.selectedSecret.password : "";
-
-  return `
-    <div class="toolbar">
-      <h1>Entry detail</h1>
-      <div class="toolbar-actions">
-        <button type="button" data-action="to-list">Volver</button>
-        <button type="button" data-action="to-edit" class="primary">Editar</button>
-        <button type="button" data-action="delete-entry" class="caution-button">Eliminar</button>
-      </div>
-    </div>
-
-    <dl class="detail-grid">
-      <dt>Titulo</dt>
-      <dd>${escapeHtml(entry.title || "")}</dd>
-
-      <dt>Dominio</dt>
-      <dd>${escapeHtml(entry.domain || "-")}</dd>
-
-      <dt>Usuario</dt>
-      <dd>
-        <div class="inline-row">
-          <span>${escapeHtml(entry.username || "-")}</span>
-          <button type="button" data-action="copy-username">Copiar</button>
-        </div>
-      </dd>
-
-      <dt>Password</dt>
-      <dd>
-        <div class="inline-row">
-          <code class="secret">${escapeHtml(state.detailPasswordVisible ? password || "-" : maskPassword(password || ""))}</code>
-          <button type="button" data-action="toggle-detail-password">
-            ${state.detailPasswordVisible ? "Ocultar" : "Revelar"}
-          </button>
-          <button type="button" data-action="copy-password">Copiar</button>
-        </div>
-      </dd>
-
-      <dt>Notas</dt>
-      <dd>${escapeHtml(entry.notes || "-")}</dd>
-    </dl>
-  `;
-};
-
-const renderUnlocked = () => {
-  switch (state.screen) {
-    case "FORM_ADD":
-      return renderEntryForm("add");
-    case "FORM_EDIT":
-      return renderEntryForm("edit");
-    case "DETAIL":
-      return renderEntryDetail();
-    default:
-      return renderList();
-  }
-};
-
-const routeBody = () => {
-  // PRIORIDAD: Si hay recovery codes pendientes, mostrarlos SIEMPRE
-  // independientemente del estado del vault
-  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
-    return renderCreateVault();
-  }
-  
-  switch (state.route) {
-    case "NO_VAULT":
-      return renderCreateVault();
-    case "LOCKED":
-      return renderUnlock();
-    case "UNLOCKED":
-      return renderUnlocked();
-    default:
-      return "";
-  }
-};
-
-const render = () => {
+const render = (): void => {
   const isUnlockedList =
-    state.route === "UNLOCKED" &&
-    state.screen === "LIST" &&
-    !state.showDeleteConfirm &&
-    state.entries.length > 0;
+    state.route === "UNLOCKED" && state.screen === "LIST" && !state.showDeleteConfirm && state.entries.length > 0;
   const popupModeClass = isUnlockedList ? "popup popup--unlocked" : "popup popup--auth";
   const cardClass = isUnlockedList ? "card card--entries" : "card";
 
@@ -623,286 +118,45 @@ const render = () => {
       </div>
 
       <section class="${cardClass}">
-        ${routeBody()}
+        ${renderRouteBody(state, { escapeHtml, maskPassword, getSelectedEntry: () => readSelectedEntry(state) })}
       </section>
     </main>
   `;
+
   focusUnlockInput();
 };
 
-root.addEventListener("submit", async (event) => {
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
+const refreshEntries = (): Promise<boolean> => {
+  return loadEntries(state, { render, setToast });
+};
 
-  const action = form.dataset.action;
-  if (!action) {
-    return;
-  }
+const refreshStatus = (): Promise<void> => {
+  return loadStatus(state, { render, setToast });
+};
 
-  event.preventDefault();
-  const data = new FormData(form);
+const ensureSelectedSecret = () => {
+  return loadSelectedSecret(state, { render, setToast });
+};
 
-  if (action === "create-vault") {
-    const vaultName = String(data.get("vaultName") ?? "").trim();
-    const master = String(data.get("master") ?? "");
-    const confirm = String(data.get("confirm") ?? "");
+const saveRecoveryCodesContext = () => {
+  return saveRecoveryCodes(state);
+};
 
-    if (!master || !confirm) {
-      setToast("Completa ambos campos de master password.", "error");
-      return;
-    }
-    if (master.length < 8) {
-      setToast("La master password debe tener al menos 8 caracteres.", "error");
-      return;
-    }
-    if (master !== confirm) {
-      setToast("Las contrasenas no coinciden.", "error");
-      return;
-    }
-
-    try {
-      const res = await sendApiMessage("VAULT_CREATE", {
-        masterPassword: master,
-        confirmPassword: confirm,
-        vaultName: vaultName || undefined
-      });
-
-      if (!res.ok) {
-        setToast(res.error?.message || "No se pudo crear el vault.", "error");
-        return;
-      }
-
-      // Capturar recovery codes de la respuesta
-      if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
-        state.recoveryCodes = res.data.recoveryCodes;
-        state.recoveryCodesAcknowledged = false;
-        state.recoveryCodesSaved = false;
-        await saveRecoveryCodesContext();
-        render(); // Re-render para mostrar los recovery codes
-        return;
-      }
-
-      await refreshStatus();
-      setToast("Vault creado.", "success");
-    } catch (_error) {
-      setToast("Error al crear el vault.", "error");
-    }
-
-    return;
-  }
-
-  if (action === "unlock-vault") {
-    const master = String(data.get("master") ?? state.unlockMasterDraft ?? "");
-    if (!master) {
-      setToast("Introduce tu master password.", "error");
-      return;
-    }
-    state.unlockMasterDraft = master;
-
-    try {
-      const res = await sendApiMessage("VAULT_UNLOCK", {
-        masterPassword: master
-      });
-
-      if (!res.ok) {
-        state.unlockMasterDraft = "";
-        setToast("Master incorrecta.", "error");
-        return;
-      }
-
-      state.unlockMasterDraft = "";
-      const shouldClosePopup = await consumeSignupUnlockContext();
-      if (shouldClosePopup) {
-        // Regla UX: solo cerrar popup si se abrió desde el flujo de signup.
-        setTimeout(() => {
-          window.close();
-        }, 80);
-      }
-
-      try {
-        await refreshStatus();
-      } catch {
-        // Ignore: no bloquear el cierre del popup.
-      }
-      setToast("Vault desbloqueado.", "success");
-    } catch (_error) {
-      state.unlockMasterDraft = "";
-      setToast("No se pudo desbloquear el vault.", "error");
-    }
-
-    return;
-  }
-
-  if (action === "unlock-recovery") {
-    const recoveryCode = String(data.get("recoveryCode") ?? "").trim();
-    if (!recoveryCode) {
-      setToast("Introduce tu recovery code.", "error");
-      return;
-    }
-
-    try {
-      const res = await sendApiMessage("VAULT_UNLOCK_RECOVERY", {
-        recoveryCode
-      });
-
-      if (!res.ok) {
-        if (res.error?.code === "RECOVERY_CODE_USED") {
-          setToast("Este recovery code ya fue utilizado.", "error");
-        } else {
-          setToast("Recovery code inválido.", "error");
-        }
-        return;
-      }
-
-      state.showRecoveryCodeUnlock = false;
-      await refreshStatus();
-      
-      setToast(`Vault desbloqueado con recovery code. ⚠️ CAMBIA TU CONTRASEÑA MAESTRA inmediatamente.`, "success");
-    } catch (_error) {
-      setToast("No se pudo desbloquear el vault.", "error");
-    }
-
-    return;
-  }
-
-  if (action === "save-entry") {
-    const title = String(data.get("title") ?? "").trim();
-    const domain = String(data.get("domain") ?? "").trim();
-    const username = String(data.get("username") ?? "").trim();
-    const password = String(data.get("password") ?? "").trim();
-    const notes = String(data.get("notes") ?? "").trim();
-
-    if (!title || !password) {
-      setToast("Titulo y password son obligatorios.", "error");
-      return;
-    }
-
-    const mode = form.dataset.mode;
-
-    try {
-      if (mode === "edit" && state.selectedEntryId) {
-        const selected = getSelectedEntry();
-        if (!selected) {
-          setToast("No se encontro la entrada.", "error");
-          return;
-        }
-
-        const res = await sendApiMessage("ENTRY_UPDATE", {
-          entry: {
-            id: state.selectedEntryId,
-            title,
-            domain: domain || undefined,
-            username: username || undefined,
-            password,
-            notes: notes || undefined,
-            createdAt: selected.createdAt,
-            updatedAt: selected.updatedAt
-          }
-        });
-
-        if (!res.ok) {
-          setToast(res.error?.message || "No se pudo actualizar la entry.", "error");
-          return;
-        }
-
-        state.selectedSecret = {
-          id: state.selectedEntryId,
-          username,
-          password
-        };
-        state.screen = "DETAIL";
-        state.detailPasswordVisible = false;
-        await refreshEntries();
-        setToast("Entry actualizada.", "success");
-        return;
-      }
-
-      const res = await sendApiMessage("ENTRY_ADD", {
-        entry: {
-          title,
-          domain: domain || undefined,
-          username: username || undefined,
-          password,
-          notes: notes || undefined
-        }
-      });
-
-      if (!res.ok) {
-        setToast(res.error?.message || "No se pudo crear la entry.", "error");
-        return;
-      }
-
-      const newId = res.data?.entry?.id;
-      await refreshEntries();
-      if (newId) {
-        selectEntry(newId);
-        state.selectedSecret = {
-          id: newId,
-          username,
-          password
-        };
-      }
-
-      setToast("Entry creada.", "success");
-      
-      // Intentar autofill en la pestaña activa si hay un formulario
-      try {
-        await sendApiMessage("REQUEST_AUTOFILL", {
-          username: username || "",
-          password
-        });
-      } catch (e) {
-        // Silenciar error si no hay content script o formulario
-        console.debug('[G8keeper] Autofill not available:', e);
-      }
-      
-      render();
-    } catch (_error) {
-      setToast("No se pudo guardar la entry.", "error");
-    }
-    return;
-  }
-
-  if (action === "confirm-delete") {
-    const master = String(data.get("master") ?? "");
-    const confirmText = String(data.get("confirmText") ?? "").trim();
-
-    if (!master || !confirmText) {
-      setToast("Completa todos los campos.", "error");
-      return;
-    }
-
-    if (confirmText.toLowerCase() !== "eliminar") {
-      setToast("Debes escribir 'eliminar' exactamente para confirmar.", "error");
-      return;
-    }
-
-    try {
-      const res = await sendApiMessage("VAULT_DELETE", {
-        masterPassword: master,
-        confirmText: confirmText
-      });
-
-      if (!res.ok) {
-        setToast(res.error?.message || "No se pudo eliminar el vault.", "error");
-        return;
-      }
-
-      // Limpiar recovery codes al eliminar vault
-      state.recoveryCodes = null;
-      state.recoveryCodesAcknowledged = false;
-      state.recoveryCodesSaved = false;
-      await chrome.storage.session.remove(RECOVERY_CODES_KEY);
-      
-      state.showDeleteConfirm = false;
-      await refreshStatus();
-      setToast("Vault eliminado correctamente.", "success");
-    } catch (_error) {
-      setToast("Error al eliminar el vault.", "error");
-    }
-  }
+attachPopupSubmitHandler({
+  root,
+  state,
+  render,
+  setToast,
+  sendApiMessage,
+  refreshStatus,
+  refreshEntries,
+  ensureSelectedSecret,
+  saveRecoveryCodesContext,
+  consumeSignupUnlockContext,
+  getSelectedEntry: () => readSelectedEntry(state),
+  selectEntry: (entryId) => setSelectedEntry(state, entryId),
+  copyText,
+  recoveryCodesKey: RECOVERY_CODES_KEY,
 });
 
 root.addEventListener("input", (event) => {
@@ -932,282 +186,29 @@ root.addEventListener("input", (event) => {
   if (target.dataset.action !== "search") {
     return;
   }
+
   state.search = target.value;
   render();
 });
 
-root.addEventListener("click", async (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-
-  const actionButton = target.closest("[data-action]");
-  if (actionButton instanceof HTMLFormElement) {
-    return;
-  }
-  const action = actionButton?.dataset.action;
-  if (!action) {
-    return;
-  }
-
-  if (action === "lock") {
-    try {
-      const res = await sendApiMessage("VAULT_LOCK");
-      if (!res.ok) {
-        setToast(res.error?.message || "No se pudo bloquear el vault.", "error");
-        return;
-      }
-      await refreshStatus();
-      setToast("Vault bloqueado.", "info");
-    } catch (_error) {
-      setToast("No se pudo bloquear el vault.", "error");
-    }
-    return;
-  }
-
-  if (action === "run-hibp-audit") {
-    try {
-      const res = await sendApiMessage("HIBP_AUDIT_START");
-      if (!res.ok) {
-        setToast(res.error?.message || "No se pudo iniciar la auditoria HIBP.", "error");
-        return;
-      }
-
-      const auditId = String(res.data?.auditId ?? "").trim();
-      if (!auditId) {
-        setToast("No se pudo crear el reporte de auditoria.", "error");
-        return;
-      }
-
-      const url = chrome.runtime.getURL(`src/report/report.html?audit=${encodeURIComponent(auditId)}`);
-      await chrome.tabs.create({ url });
-      setToast("Auditoria iniciada. Reporte abierto en una nueva pestana.", "info");
-    } catch (_error) {
-      setToast("No se pudo iniciar la auditoria HIBP.", "error");
-    }
-    return;
-  }
-
-  if (action === "to-add") {
-    state.formPasswordVisible = false;
-    state.selectedSecret = null;
-    state.screen = "FORM_ADD";
-    render();
-    return;
-  }
-
-  if (action === "to-list") {
-    state.detailPasswordVisible = false;
-    state.formPasswordVisible = false;
-    state.showDeleteConfirm = false;
-    state.screen = "LIST";
-    render();
-    return;
-  }
-
-  if (action === "show-delete") {
-    const confirmed = window.confirm(
-      "⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE todas tus contraseñas.\n\n" +
-      "¿Estás seguro de que quieres continuar?"
-    );
-    if (!confirmed) {
-      return;
-    }
-    state.showDeleteConfirm = true;
-    render();
-    return;
-  }
-
-  if (action === "cancel-delete") {
-    state.showDeleteConfirm = false;
-    render();
-    return;
-  }
-
-  if (action === "show-recovery") {
-    state.showRecoveryCodeUnlock = true;
-    render();
-    return;
-  }
-
-  if (action === "cancel-recovery") {
-    state.showRecoveryCodeUnlock = false;
-    render();
-    return;
-  }
-
-  if (action === "toggle-recovery-ack") {
-    state.recoveryCodesAcknowledged = !state.recoveryCodesAcknowledged;
-    await saveRecoveryCodesContext();
-    render();
-    return;
-  }
-
-  if (action === "copy-recovery-codes") {
-    if (!state.recoveryCodes) return;
-    const text = state.recoveryCodes.map((code, i) => `${i + 1}. ${code}`).join("\n");
-    try {
-      await copyText(text);
-      state.recoveryCodesSaved = true;
-      await saveRecoveryCodesContext();
-      setToast("Códigos copiados al portapapeles", "success");
-    } catch {
-      setToast("No se pudo copiar", "error");
-    }
-    return;
-  }
-
-  if (action === "export-recovery-codes") {
-    if (!state.recoveryCodes) return;
-    try {
-      const res = await sendApiMessage("EXPORT_RECOVERY_CODES", {
-        codes: state.recoveryCodes,
-        vaultName: state.vaultName || undefined
-      });
-      if (!res.ok) {
-        setToast("Error al exportar", "error");
-        return;
-      }
-      // Crear y descargar el archivo
-      const blob = new Blob([res.data.blob], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.data.filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      state.recoveryCodesSaved = true;
-      await saveRecoveryCodesContext();
-      setToast("Códigos exportados", "success");
-    } catch {
-      setToast("Error al exportar", "error");
-    }
-    return;
-  }
-
-  if (action === "done-recovery-codes") {
-    if (!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged) return;
-    state.recoveryCodes = null;
-    state.recoveryCodesAcknowledged = false;
-    state.recoveryCodesSaved = false;
-    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
-    await refreshStatus();
-    setToast("Vault creado exitosamente", "success");
-    return;
-  }
-
-  if (action === "to-edit") {
-    state.formPasswordVisible = false;
-    await ensureSelectedSecret();
-    state.screen = "FORM_EDIT";
-    render();
-    return;
-  }
-
-  if (action === "delete-entry") {
-    const entry = getSelectedEntry();
-    if (!entry) {
-      setToast("No se encontro la entrada.", "error");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE esta credencial.\n\n" +
-      "¿Estás seguro de que quieres continuar?"
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      const res = await sendApiMessage("ENTRY_DELETE", { id: entry.id });
-      if (!res.ok) {
-        setToast(res.error?.message || "No se pudo eliminar la entry.", "error");
-        return;
-      }
-      state.selectedEntryId = null;
-      state.selectedSecret = null;
-      state.detailPasswordVisible = false;
-      state.screen = "LIST";
-      await refreshEntries();
-      setToast("Entry eliminada.", "success");
-    } catch (_error) {
-      setToast("No se pudo eliminar la entry.", "error");
-    }
-    return;
-  }
-
-  if (action === "open-entry") {
-    const entryId = actionButton?.dataset.entryId;
-    if (!entryId) {
-      return;
-    }
-    selectEntry(entryId);
-    render();
-    await ensureSelectedSecret();
-    return;
-  }
-
-  if (action === "toggle-form-password") {
-    if (!state.formPasswordVisible) {
-      const accepted = window.confirm("Vas a revelar la contrasena en pantalla. Continuar?");
-      if (!accepted) {
-        return;
-      }
-    }
-    state.formPasswordVisible = !state.formPasswordVisible;
-    render();
-    return;
-  }
-
-  if (action === "toggle-detail-password") {
-    if (!state.detailPasswordVisible) {
-      const accepted = window.confirm("Vas a revelar la contrasena en pantalla. Continuar?");
-      if (!accepted) {
-        return;
-      }
-      const secret = await ensureSelectedSecret();
-      if (!secret) {
-        return;
-      }
-    }
-
-    state.detailPasswordVisible = !state.detailPasswordVisible;
-    render();
-    return;
-  }
-
-  if (action === "copy-username" || action === "copy-password") {
-    const entry = getSelectedEntry();
-    if (!entry) {
-      setToast("No se encontro la entrada.", "error");
-      return;
-    }
-
-    const secret = await ensureSelectedSecret();
-    const value = action === "copy-username"
-      ? secret?.username || entry.username
-      : secret?.password;
-
-    if (!value) {
-      setToast("No hay valor para copiar.", "error");
-      return;
-    }
-
-    try {
-      await copyText(value);
-      setToast(action === "copy-password" ? "Password copiada." : "Usuario copiado.", "success");
-    } catch (_error) {
-      setToast("No se pudo copiar al portapapeles.", "error");
-    }
-  }
+attachPopupClickHandler({
+  root,
+  state,
+  render,
+  setToast,
+  sendApiMessage,
+  refreshStatus,
+  refreshEntries,
+  ensureSelectedSecret,
+  saveRecoveryCodesContext,
+  consumeSignupUnlockContext,
+  getSelectedEntry: () => readSelectedEntry(state),
+  selectEntry: (entryId) => setSelectedEntry(state, entryId),
+  copyText,
+  recoveryCodesKey: RECOVERY_CODES_KEY,
 });
 
-// Restaurar recovery codes si existen antes de renderizar
-void restoreRecoveryCodesContext().then(() => {
+void restoreRecoveryCodes(state).then(() => {
   render();
   void refreshStatus();
 });
