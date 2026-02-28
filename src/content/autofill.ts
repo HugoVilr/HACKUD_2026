@@ -277,15 +277,80 @@ function showSignupSuggestion(form: HTMLFormElement): void {
 
   const remove = () => notification.remove();
 
-  acceptBtn?.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ 
-      type: 'OPEN_POPUP_FOR_SIGNUP',
-      payload: {
-        url: window.location.href,
-        title: document.title,
-      }
-    });
-    remove();
+  acceptBtn?.addEventListener('click', async () => {
+    console.log('[G8keeper] User clicked "Abrir Vault"');
+    
+    try {
+      // Enviar mensaje al background para registrar la intención
+      await chrome.runtime.sendMessage({ 
+        type: 'OPEN_POPUP_FOR_SIGNUP',
+        payload: {
+          url: window.location.href,
+          title: document.title,
+        }
+      });
+      
+      console.log('[G8keeper] Attempting to open popup...');
+      
+      // Intentar abrir el popup (requiere user gesture, que tenemos del click)
+      // En Manifest V3, esto puede fallar si no estamos en contexto válido
+      await chrome.action.openPopup();
+      
+      console.log('[G8keeper] Popup opened successfully');
+      remove();
+    } catch (error) {
+      console.log('[G8keeper] Cannot open popup automatically:', error);
+      
+      // Si falla, mostrar instrucciones visuales al usuario
+      const instruction = document.createElement('div');
+      instruction.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(0, 0, 0, 0.95);
+          color: white;
+          padding: 32px 40px;
+          border-radius: 12px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+          z-index: 9999999;
+          font-family: system-ui, -apple-system, sans-serif;
+          text-align: center;
+          max-width: 400px;
+        ">
+          <div style="font-size: 48px; margin-bottom: 16px;">🔐</div>
+          <h3 style="margin: 0 0 12px 0; font-size: 20px;">Abre G8keeper</h3>
+          <p style="margin: 0 0 20px 0; opacity: 0.9; line-height: 1.5;">
+            Haz click en el <strong>icono de G8keeper</strong> en la barra de herramientas 
+            para crear una contraseña segura.
+          </p>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 20px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 6px;">
+            <span style="font-size: 32px;">🧩</span>
+            <span style="font-size: 20px;">→</span>
+            <span style="font-size: 32px;">🔐</span>
+          </div>
+          <button id="g8keeper-got-it" style="
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+          ">Entendido</button>
+        </div>
+      `;
+      
+      document.body.appendChild(instruction);
+      
+      instruction.querySelector('#g8keeper-got-it')?.addEventListener('click', () => {
+        instruction.remove();
+      });
+      
+      remove();
+    }
   });
 
   dismissBtn?.addEventListener('click', remove);
