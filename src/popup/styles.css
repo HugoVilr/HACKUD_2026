@@ -331,13 +331,11 @@ textarea:focus {
   margin-bottom: 0;
 }
 
-.entry-list,
 .ascii-art {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-.entry-list::-webkit-scrollbar,
 .ascii-art::-webkit-scrollbar {
   width: 0;
   height: 0;
