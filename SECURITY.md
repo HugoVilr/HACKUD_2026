@@ -100,25 +100,41 @@ if (leakCount > 0) {
 
 ---
 
-### 5. **Validación de Origen de Mensajes** ✨ NEW (Security Fix #18)
+### 5. **Validación de Origen de Mensajes** ✨ NEW (Security Fix #18) - UPDATED
 ```typescript
 // Validar que el sender es la propia extensión
 if (!sender.id || sender.id !== chrome.runtime.id) {
   return error("FORBIDDEN", "Invalid message origin");
 }
 
-// Rechazar mensajes desde content scripts
+// Whitelist de mensajes seguros desde content scripts
+const CONTENT_SCRIPT_ALLOWED_MESSAGES = [
+  'VAULT_STATUS',           // Solo lectura - verificar estado
+  'OPEN_POPUP_FOR_SIGNUP'   // Solo sugerencia - no modifica datos
+];
+
+// Si viene de content script, validar whitelist
 if (sender.tab) {
-  return error("FORBIDDEN", "Content scripts not allowed");
+  const isAllowed = CONTENT_SCRIPT_ALLOWED_MESSAGES.includes(message.type);
+  
+  if (!isAllowed) {
+    return error("FORBIDDEN", "Content scripts: read-only operations only");
+  }
 }
 ```
 
 **Protege contra**:
 - Cross-extension messaging attacks
-- Content scripts maliciosos en páginas web comprometidas
+- Content scripts maliciosos ejecutando operaciones de escritura (ENTRY_ADD, ENTRY_DELETE, etc.)
 - Comunicación no autorizada desde contextos externos
 
-**Rationale**: Defense in depth - aunque Chrome aísla contextos, validación explícita añade capa extra de seguridad
+**Whitelist Rationale**:
+- `VAULT_STATUS`: Solo lectura, necesaria para verificar si mostrar sugerencia de auto-capture
+- `OPEN_POPUP_FOR_SIGNUP`: No modifica vault, solo sugerencia visual al usuario
+- Todas las operaciones de escritura (ENTRY_ADD, VAULT_DELETE, etc.): **BLOQUEADAS** desde content scripts
+- Defense in depth: validación explícita de origen + whitelist granular
+
+**UPDATE (28/02/2026)**: Relajada la restricción inicial de "bloquear todos content scripts" para permitir funcionalidad de auto-capture. Solo mensajes read-only permitidos desde content scripts.
 
 ---
 
@@ -526,6 +542,28 @@ Chrome Extension ↔ Native App (C++/Rust)
 |------|---------|----------|--------|
 | 2026-02-27 | AI Security Review (Round 1) | 18 vulnerabilidades identificadas | ✅ 15 fixed, 3 documented as future work |
 | 2026-02-28 | AI Security Review (Round 2) | 3 vulnerabilidades adicionales de defense-in-depth | ✅ 3 fixed (#18, #19, #20) |
+| 2026-02-28 | Feature Integration Review | Fix #18 demasiado restrictivo para auto-capture | ✅ Updated: whitelist-based approach |
+
+### Round 2 Update (2026-02-28 - later)
+
+**Context**: Feature auto-capture requiere comunicación content script → background
+
+**Issue**:
+- Fix #18 bloqueaba **todos** los mensajes desde content scripts
+- Auto-capture necesita verificar estado del vault (VAULT_STATUS)
+- Funcionalidad completamente rota: content script no puede preguntar si vault está desbloqueado
+
+**Solution**:
+- **Whitelist de mensajes read-only** desde content scripts
+- Permitidos: `VAULT_STATUS` (lectura), `OPEN_POPUP_FOR_SIGNUP` (sugerencia)
+- Bloqueados: todas operaciones de escritura (ENTRY_ADD, VAULT_DELETE, etc.)
+- Mantiene seguridad mientras habilita funcionalidad
+
+**Security Impact**:
+- ✅ Content scripts NO pueden modificar vault
+- ✅ Content scripts NO pueden leer credenciales (ENTRY_GET, ENTRY_GET_SECRET: bloqueados)
+- ✅ Solo pueden verificar estado (locked/unlocked) y sugerir acciones
+- ✅ Defense in depth mantenido con validación de sender.id
 
 ### Round 2 Details (2026-02-28)
 
