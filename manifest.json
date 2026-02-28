@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "G8keeper",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "action": {
     "default_popup": "src/popup/popup.html"
   },
@@ -9,13 +9,26 @@
     "service_worker": "src/background/sw.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/autofill.js", "src/content/credential-assistant.js"],
+      "css": ["src/styles/shared.css", "src/styles/content-autofill.css", "src/styles/content-credential-assistant.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.pwnedpasswords.com/*"],
+  "permissions": ["storage", "activeTab", "scripting", "alarms"],
+  "host_permissions": [
+    "https://api.pwnedpasswords.com/*",
+    "https://haveibeenpwned.com/*",
+    "<all_urls>"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none';"
   }

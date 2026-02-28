@@ -3,12 +3,12 @@
   --bg-elev: #071007;
   --panel: #0a140a;
   --text: #c3f6c4;
-  --muted: #6d8f6f;
-  --accent: #9af89d;
-  --accent-strong: #cefccd;
-  --border: rgba(154, 248, 157, 0.35);
+  --muted: var(--g8-muted);
+  --accent: var(--g8-accent);
+  --accent-strong: var(--g8-accent-strong);
+  --border: var(--g8-border);
   --danger: #ff7f7f;
-  --font: "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+  --font: var(--g8-font-mono);
 }
 
 * {
@@ -120,8 +120,8 @@ body::before {
 }
 
 .toast.error {
-  background: #6f2a2a;
-  color: #ffc1c1;
+  background: var(--g8-danger-bg);
+  color: var(--g8-danger-text);
   border-color: rgba(255, 127, 127, 0.5);
 }
 
@@ -204,6 +204,19 @@ button.primary:hover {
   background: rgba(154, 248, 157, 0.28);
 }
 
+button[disabled], button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(154, 248, 157, 0.04) !important;
+  border-color: rgba(206, 252, 205, 0.2) !important;
+  color: rgba(154, 248, 157, 0.5) !important;
+}
+
+button[disabled]:hover, button:disabled:hover {
+  background: rgba(154, 248, 157, 0.04) !important;
+  transform: none;
+}
+
 .caution-button {
   background: linear-gradient(180deg, rgba(154, 248, 157, 0.1) 0%, rgba(111, 42, 42, 0.38) 100%);
   border-color: rgba(255, 127, 127, 0.42);
@@ -280,8 +293,8 @@ textarea:focus {
   margin: 0;
   border-radius: 8px;
   border: 1px solid rgba(255, 127, 127, 0.5);
-  background: #6f2a2a;
-  color: #ffc1c1;
+  background: var(--g8-danger-bg);
+  color: var(--g8-danger-text);
   padding: 8px 10px;
   font-size: 12px;
 }
@@ -329,6 +342,16 @@ textarea:focus {
   height: 100%;
   overflow: auto;
   margin-bottom: 0;
+}
+
+.ascii-art {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ascii-art::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .entry-empty {
@@ -407,4 +430,108 @@ textarea:focus {
 ::-webkit-scrollbar-thumb {
   background: rgba(154, 248, 157, 0.38);
   border-radius: 999px;
+}
+
+/* Recovery Codes Styles */
+.recovery-codes-screen {
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.recovery-codes-list {
+  background: rgba(10, 20, 10, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 12px 0;
+  font-family: var(--font);
+}
+
+.recovery-code-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(154, 248, 157, 0.15);
+}
+
+.recovery-code-item:last-child {
+  border-bottom: none;
+}
+
+.code-number {
+  font-weight: bold;
+  color: var(--accent);
+  margin-right: 12px;
+  min-width: 24px;
+}
+
+.code-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--accent-strong);
+  background: rgba(154, 248, 157, 0.08);
+  padding: 6px 10px;
+  border-radius: 3px;
+  word-break: break-all;
+  border: 1px solid rgba(154, 248, 157, 0.2);
+}
+
+.recovery-codes-info {
+  background: rgba(154, 248, 157, 0.08);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.recovery-codes-info ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.recovery-codes-info li {
+  margin: 4px 0;
+}
+
+.checkbox-field {
+  background: rgba(10, 20, 10, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  margin: 12px 0;
+  display: flex !important;
+  align-items: center;
+  cursor: pointer;
+}
+
+.checkbox-field input[type="checkbox"] {
+  margin-right: 8px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.checkbox-field span {
+  font-size: 13px;
+}
+
+.warning-text {
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.5);
+  border-radius: 4px;
+  padding: 10px;
+  color: #ffc107;
+  font-size: 13px;
+}
+
+.secondary {
+  background: rgba(108, 117, 125, 0.3);
+  border: 1px solid rgba(108, 117, 125, 0.5);
+  color: var(--text);
+}
+
+.secondary:hover {
+  background: rgba(108, 117, 125, 0.5);
+  border-color: rgba(108, 117, 125, 0.7);
 }

@@ -7,11 +7,19 @@ const state = {
   formPasswordVisible: false,
   detailPasswordVisible: false,
   selectedSecret: null,
+  unlockMasterDraft: "",
   toastMessage: "",
   toastTone: "info",
   entries: [],
-  showDeleteConfirm: false
+  showDeleteConfirm: false,
+  recoveryCodes: null, // Códigos de recuperación (solo después de crear vault)
+  recoveryCodesAcknowledged: false,
+  recoveryCodesSaved: false, // Se marca true cuando el usuario copia o exporta los códigos
+  showRecoveryCodeUnlock: false // Mostrar opción de desbloqueo con recovery code
 };
+
+const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+const RECOVERY_CODES_KEY = "g8keeper_recovery_codes_context";
 
 const root = document.getElementById("app");
 if (!root) {
@@ -63,6 +71,19 @@ const setToast = (message, tone = "info") => {
   }, 1800);
 };
 
+const focusUnlockInput = () => {
+  if (state.route !== "LOCKED") {
+    return;
+  }
+  const unlockInput = root.querySelector('form[data-action="unlock-vault"] input[name="master"]');
+  if (!(unlockInput instanceof HTMLInputElement)) {
+    return;
+  }
+  unlockInput.focus();
+  const caret = unlockInput.value.length;
+  unlockInput.setSelectionRange(caret, caret);
+};
+
 const copyText = async (value) => {
   if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     await navigator.clipboard.writeText(value);
@@ -112,12 +133,67 @@ const getSelectedEntry = () => {
 };
 
 const sendApiMessage = async (type, payload) => {
-  const message = payload === undefined ? { type } : { type, payload };
-  const res = await chrome.runtime.sendMessage(message);
-  if (!res || typeof res.ok !== "boolean") {
-    throw new Error("api-bad-response");
+  try {
+    const message = payload === undefined ? { type } : { type, payload };
+    const res = await chrome.runtime.sendMessage(message);
+    if (!res || typeof res.ok !== "boolean") {
+      throw new Error("api-bad-response");
+    }
+    return res;
+  } catch (error) {
+    throw error;
   }
-  return res;
+};
+
+const consumeSignupUnlockContext = async () => {
+  try {
+    const data = await chrome.storage.session.get(POPUP_CONTEXT_KEY);
+    const context = data?.[POPUP_CONTEXT_KEY];
+    if (!context || typeof context !== "object") {
+      return false;
+    }
+    const isSignupContext = context.source === "signup";
+    const expiresAt = Number(context.expiresAt || 0);
+    const isExpired = !Number.isFinite(expiresAt) || expiresAt < Date.now();
+    await chrome.storage.session.remove(POPUP_CONTEXT_KEY);
+    return isSignupContext && !isExpired;
+  } catch {
+    return false;
+  }
+};
+
+// Guardar estado de recovery codes para que persista entre aperturas del popup
+const saveRecoveryCodesContext = async () => {
+  if (!state.recoveryCodes || state.recoveryCodes.length === 0) {
+    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+    return;
+  }
+  await chrome.storage.session.set({
+    [RECOVERY_CODES_KEY]: {
+      codes: state.recoveryCodes,
+      acknowledged: state.recoveryCodesAcknowledged,
+      saved: state.recoveryCodesSaved,
+      vaultName: state.vaultName
+    }
+  });
+};
+
+// Restaurar estado de recovery codes al abrir popup
+const restoreRecoveryCodesContext = async () => {
+  try {
+    const data = await chrome.storage.session.get(RECOVERY_CODES_KEY);
+    const context = data?.[RECOVERY_CODES_KEY];
+    if (context && Array.isArray(context.codes) && context.codes.length > 0) {
+      state.recoveryCodes = context.codes;
+      state.recoveryCodesAcknowledged = Boolean(context.acknowledged);
+      state.recoveryCodesSaved = Boolean(context.saved);
+      if (context.vaultName) {
+        state.vaultName = context.vaultName;
+      }
+    }
+  } catch (err) {
+    // Silent error - non-critical context restore
+  }
 };
 
 const refreshEntries = async () => {
@@ -143,6 +219,13 @@ const refreshStatus = async () => {
   }
 
   state.vaultName = res.data?.vaultName || "";
+
+  // CRITICAL: Si hay recovery codes pendientes, NO cambiar route ni renderizar
+  // El usuario debe completar el flujo de recovery codes primero
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    // Solo actualizar vaultName, no cambiar route ni renderizar
+    return;
+  }
 
   if (!res.data?.hasVault) {
     setRoute("NO_VAULT");
@@ -184,6 +267,60 @@ const ensureSelectedSecret = async () => {
 };
 
 const renderCreateVault = () => {
+  // Si acabamos de crear el vault y tenemos recovery codes, mostrarlos
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    return `
+      <div class="recovery-codes-screen">
+        <h1>🔐 Códigos de Recuperación</h1>
+        <p class="muted warning-text">
+          ⚠️ <strong>IMPORTANTE:</strong> Guarda estos códigos en un lugar seguro.
+          Son la única forma de recuperar tu vault si olvidas tu contraseña maestra.
+        </p>
+
+        <div class="recovery-codes-list">
+          ${state.recoveryCodes.map((code, i) => `
+            <div class="recovery-code-item">
+              <span class="code-number">${i + 1}.</span>
+              <code class="code-text">${escapeHtml(code)}</code>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="recovery-codes-info">
+          <ul>
+            <li>✓ Cada código puede usarse <strong>UNA SOLA VEZ</strong></li>
+            <li>✓ Tienen 256 bits de entropía (ultra seguros)</li>
+            <li>✓ NO los compartas con nadie</li>
+            <li>✓ Imprímelos y guárdalos físicamente</li>
+          </ul>
+        </div>
+
+        <div class="stack">
+          <button type="button" data-action="copy-recovery-codes" class="secondary">
+            📋 Copiar todos
+          </button>
+          <button type="button" data-action="export-recovery-codes" class="secondary">
+            💾 Exportar como .txt
+          </button>
+          
+          <label class="field checkbox-field">
+            <input type="checkbox" data-action="toggle-recovery-ack" ${state.recoveryCodesAcknowledged ? 'checked' : ''} />
+            <span>He guardado mis códigos de recuperación en un lugar seguro</span>
+          </label>
+
+          <button 
+            type="button" 
+            data-action="done-recovery-codes" 
+            class="primary" 
+            ${!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged ? 'disabled' : ''}
+          >
+            Continuar
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <h1>Create vault</h1>
     <p class="muted">Crea una master password para tu vault local.</p>
@@ -208,7 +345,22 @@ const renderCreateVault = () => {
 const renderUnlock = () => {
   const vaultHint = state.vaultName
     ? `Vault: ${escapeHtml(state.vaultName)}`
-    : "No se detecta vault valido en memoria (demo).";
+    : "Vault local detectado. Introduce tu master password.";
+
+  if (state.showRecoveryCodeUnlock) {
+    return `
+      <h1>Recovery Code</h1>
+      <p class="muted">Introduce uno de tus códigos de recuperación</p>
+      <form data-action="unlock-recovery" class="stack">
+        <label class="field">
+          <span>Recovery Code</span>
+          <input name="recoveryCode" type="text" required placeholder="Pega aquí tu recovery code" />
+        </label>
+        <button class="primary" type="submit">Desbloquear</button>
+        <button type="button" data-action="cancel-recovery" class="secondary">Volver a master password</button>
+      </form>
+    `;
+  }
 
   return `
     <h1>Unlock vault</h1>
@@ -216,9 +368,10 @@ const renderUnlock = () => {
     <form data-action="unlock-vault" class="stack">
       <label class="field">
         <span>Master password</span>
-        <input name="master" type="password" required />
+        <input name="master" type="password" required value="${escapeHtml(state.unlockMasterDraft)}" />
       </label>
       <button class="primary" type="submit">Desbloquear</button>
+      <button type="button" data-action="show-recovery" class="secondary">¿Olvidaste tu contraseña?</button>
     </form>
   `;
 };
@@ -265,6 +418,7 @@ const renderList = () => {
     }
     return (
       String(entry.title || "").toLowerCase().includes(needle) ||
+      String(entry.domain || "").toLowerCase().includes(needle) ||
       String(entry.username || "").toLowerCase().includes(needle) ||
       String(entry.notes || "").toLowerCase().includes(needle)
     );
@@ -276,6 +430,7 @@ const renderList = () => {
         <h1>Vault entries</h1>
         <div class="toolbar-actions">
           <button type="button" data-action="to-add" class="primary">+ Add</button>
+          <button type="button" data-action="run-hibp-audit">Leak audit</button>
           <button type="button" data-action="lock">Lock</button>
           <button type="button" data-action="show-delete" class="caution-button">Eliminar Vault</button>
         </div>
@@ -316,6 +471,7 @@ const renderList = () => {
 const renderEntryForm = (mode) => {
   const entry = mode === "edit" ? getSelectedEntry() : null;
   const title = entry?.title ?? "";
+  const domain = entry?.domain ?? "";
   const username = entry?.username ?? "";
   const password = mode === "edit" ? state.selectedSecret?.password ?? "" : "";
   const notes = entry?.notes ?? "";
@@ -330,6 +486,10 @@ const renderEntryForm = (mode) => {
       <label class="field">
         <span>Titulo</span>
         <input name="title" type="text" required maxlength="60" value="${escapeHtml(title)}" />
+      </label>
+      <label class="field">
+        <span>Dominio (opcional)</span>
+        <input name="domain" type="text" maxlength="120" placeholder="ej: github.com" value="${escapeHtml(domain)}" />
       </label>
       <label class="field">
         <span>Usuario</span>
@@ -374,12 +534,16 @@ const renderEntryDetail = () => {
       <div class="toolbar-actions">
         <button type="button" data-action="to-list">Volver</button>
         <button type="button" data-action="to-edit" class="primary">Editar</button>
+        <button type="button" data-action="delete-entry" class="caution-button">Eliminar</button>
       </div>
     </div>
 
     <dl class="detail-grid">
       <dt>Titulo</dt>
       <dd>${escapeHtml(entry.title || "")}</dd>
+
+      <dt>Dominio</dt>
+      <dd>${escapeHtml(entry.domain || "-")}</dd>
 
       <dt>Usuario</dt>
       <dd>
@@ -420,6 +584,12 @@ const renderUnlocked = () => {
 };
 
 const routeBody = () => {
+  // PRIORIDAD: Si hay recovery codes pendientes, mostrarlos SIEMPRE
+  // independientemente del estado del vault
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    return renderCreateVault();
+  }
+  
   switch (state.route) {
     case "NO_VAULT":
       return renderCreateVault();
@@ -446,7 +616,7 @@ const render = () => {
       ${state.toastMessage ? `<div class="toast ${state.toastTone}">${escapeHtml(state.toastMessage)}</div>` : ""}
 
       <div class="topline">
-        <pre class="ascii-art" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
+        <pre class="ascii-art" tabindex="-1" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
         <header class="row">
           <span class="chip">${routeLabels[state.route]}</span>
         </header>
@@ -457,6 +627,7 @@ const render = () => {
       </section>
     </main>
   `;
+  focusUnlockInput();
 };
 
 root.addEventListener("submit", async (event) => {
@@ -503,8 +674,18 @@ root.addEventListener("submit", async (event) => {
         return;
       }
 
+      // Capturar recovery codes de la respuesta
+      if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
+        state.recoveryCodes = res.data.recoveryCodes;
+        state.recoveryCodesAcknowledged = false;
+        state.recoveryCodesSaved = false;
+        await saveRecoveryCodesContext();
+        render(); // Re-render para mostrar los recovery codes
+        return;
+      }
+
       await refreshStatus();
-      setToast("Vault creado. Ahora desbloquealo.", "success");
+      setToast("Vault creado.", "success");
     } catch (_error) {
       setToast("Error al crear el vault.", "error");
     }
@@ -513,11 +694,12 @@ root.addEventListener("submit", async (event) => {
   }
 
   if (action === "unlock-vault") {
-    const master = String(data.get("master") ?? "");
+    const master = String(data.get("master") ?? state.unlockMasterDraft ?? "");
     if (!master) {
       setToast("Introduce tu master password.", "error");
       return;
     }
+    state.unlockMasterDraft = master;
 
     try {
       const res = await sendApiMessage("VAULT_UNLOCK", {
@@ -525,12 +707,59 @@ root.addEventListener("submit", async (event) => {
       });
 
       if (!res.ok) {
-        setToast(res.error?.message || "Master incorrecta. Revisa mayusculas y vuelve a intentar.", "error");
+        state.unlockMasterDraft = "";
+        setToast("Master incorrecta.", "error");
         return;
       }
 
-      await refreshStatus();
+      state.unlockMasterDraft = "";
+      const shouldClosePopup = await consumeSignupUnlockContext();
+      if (shouldClosePopup) {
+        // Regla UX: solo cerrar popup si se abrió desde el flujo de signup.
+        setTimeout(() => {
+          window.close();
+        }, 80);
+      }
+
+      try {
+        await refreshStatus();
+      } catch {
+        // Ignore: no bloquear el cierre del popup.
+      }
       setToast("Vault desbloqueado.", "success");
+    } catch (_error) {
+      state.unlockMasterDraft = "";
+      setToast("No se pudo desbloquear el vault.", "error");
+    }
+
+    return;
+  }
+
+  if (action === "unlock-recovery") {
+    const recoveryCode = String(data.get("recoveryCode") ?? "").trim();
+    if (!recoveryCode) {
+      setToast("Introduce tu recovery code.", "error");
+      return;
+    }
+
+    try {
+      const res = await sendApiMessage("VAULT_UNLOCK_RECOVERY", {
+        recoveryCode
+      });
+
+      if (!res.ok) {
+        if (res.error?.code === "RECOVERY_CODE_USED") {
+          setToast("Este recovery code ya fue utilizado.", "error");
+        } else {
+          setToast("Recovery code inválido.", "error");
+        }
+        return;
+      }
+
+      state.showRecoveryCodeUnlock = false;
+      await refreshStatus();
+      
+      setToast(`Vault desbloqueado con recovery code. ⚠️ CAMBIA TU CONTRASEÑA MAESTRA inmediatamente.`, "success");
     } catch (_error) {
       setToast("No se pudo desbloquear el vault.", "error");
     }
@@ -540,6 +769,7 @@ root.addEventListener("submit", async (event) => {
 
   if (action === "save-entry") {
     const title = String(data.get("title") ?? "").trim();
+    const domain = String(data.get("domain") ?? "").trim();
     const username = String(data.get("username") ?? "").trim();
     const password = String(data.get("password") ?? "").trim();
     const notes = String(data.get("notes") ?? "").trim();
@@ -563,6 +793,7 @@ root.addEventListener("submit", async (event) => {
           entry: {
             id: state.selectedEntryId,
             title,
+            domain: domain || undefined,
             username: username || undefined,
             password,
             notes: notes || undefined,
@@ -591,6 +822,7 @@ root.addEventListener("submit", async (event) => {
       const res = await sendApiMessage("ENTRY_ADD", {
         entry: {
           title,
+          domain: domain || undefined,
           username: username || undefined,
           password,
           notes: notes || undefined
@@ -614,6 +846,18 @@ root.addEventListener("submit", async (event) => {
       }
 
       setToast("Entry creada.", "success");
+      
+      // Intentar autofill en la pestaña activa si hay un formulario
+      try {
+        await sendApiMessage("REQUEST_AUTOFILL", {
+          username: username || "",
+          password
+        });
+      } catch (e) {
+        // Silenciar error si no hay content script o formulario
+        console.debug('[G8keeper] Autofill not available:', e);
+      }
+      
       render();
     } catch (_error) {
       setToast("No se pudo guardar la entry.", "error");
@@ -646,6 +890,12 @@ root.addEventListener("submit", async (event) => {
         return;
       }
 
+      // Limpiar recovery codes al eliminar vault
+      state.recoveryCodes = null;
+      state.recoveryCodesAcknowledged = false;
+      state.recoveryCodesSaved = false;
+      await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+      
       state.showDeleteConfirm = false;
       await refreshStatus();
       setToast("Vault eliminado correctamente.", "success");
@@ -660,6 +910,25 @@ root.addEventListener("input", (event) => {
   if (!(target instanceof HTMLInputElement)) {
     return;
   }
+
+  const unlockForm = target.closest('form[data-action="unlock-vault"]');
+  if (unlockForm && target.name === "master") {
+    state.unlockMasterDraft = target.value;
+    if (state.toastTone === "error" && state.toastMessage) {
+      state.toastMessage = "";
+      state.toastTone = "info";
+      if (toastTimeoutId) {
+        clearTimeout(toastTimeoutId);
+        toastTimeoutId = null;
+      }
+      const toastNode = root.querySelector(".toast");
+      if (toastNode) {
+        toastNode.remove();
+      }
+    }
+    return;
+  }
+
   if (target.dataset.action !== "search") {
     return;
   }
@@ -674,6 +943,9 @@ root.addEventListener("click", async (event) => {
   }
 
   const actionButton = target.closest("[data-action]");
+  if (actionButton instanceof HTMLFormElement) {
+    return;
+  }
   const action = actionButton?.dataset.action;
   if (!action) {
     return;
@@ -690,6 +962,29 @@ root.addEventListener("click", async (event) => {
       setToast("Vault bloqueado.", "info");
     } catch (_error) {
       setToast("No se pudo bloquear el vault.", "error");
+    }
+    return;
+  }
+
+  if (action === "run-hibp-audit") {
+    try {
+      const res = await sendApiMessage("HIBP_AUDIT_START");
+      if (!res.ok) {
+        setToast(res.error?.message || "No se pudo iniciar la auditoria HIBP.", "error");
+        return;
+      }
+
+      const auditId = String(res.data?.auditId ?? "").trim();
+      if (!auditId) {
+        setToast("No se pudo crear el reporte de auditoria.", "error");
+        return;
+      }
+
+      const url = chrome.runtime.getURL(`src/report/report.html?audit=${encodeURIComponent(auditId)}`);
+      await chrome.tabs.create({ url });
+      setToast("Auditoria iniciada. Reporte abierto en una nueva pestana.", "info");
+    } catch (_error) {
+      setToast("No se pudo iniciar la auditoria HIBP.", "error");
     }
     return;
   }
@@ -730,11 +1025,118 @@ root.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "show-recovery") {
+    state.showRecoveryCodeUnlock = true;
+    render();
+    return;
+  }
+
+  if (action === "cancel-recovery") {
+    state.showRecoveryCodeUnlock = false;
+    render();
+    return;
+  }
+
+  if (action === "toggle-recovery-ack") {
+    state.recoveryCodesAcknowledged = !state.recoveryCodesAcknowledged;
+    await saveRecoveryCodesContext();
+    render();
+    return;
+  }
+
+  if (action === "copy-recovery-codes") {
+    if (!state.recoveryCodes) return;
+    const text = state.recoveryCodes.map((code, i) => `${i + 1}. ${code}`).join("\n");
+    try {
+      await copyText(text);
+      state.recoveryCodesSaved = true;
+      await saveRecoveryCodesContext();
+      setToast("Códigos copiados al portapapeles", "success");
+    } catch {
+      setToast("No se pudo copiar", "error");
+    }
+    return;
+  }
+
+  if (action === "export-recovery-codes") {
+    if (!state.recoveryCodes) return;
+    try {
+      const res = await sendApiMessage("EXPORT_RECOVERY_CODES", {
+        codes: state.recoveryCodes,
+        vaultName: state.vaultName || undefined
+      });
+      if (!res.ok) {
+        setToast("Error al exportar", "error");
+        return;
+      }
+      // Crear y descargar el archivo
+      const blob = new Blob([res.data.blob], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.data.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      state.recoveryCodesSaved = true;
+      await saveRecoveryCodesContext();
+      setToast("Códigos exportados", "success");
+    } catch {
+      setToast("Error al exportar", "error");
+    }
+    return;
+  }
+
+  if (action === "done-recovery-codes") {
+    if (!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged) return;
+    state.recoveryCodes = null;
+    state.recoveryCodesAcknowledged = false;
+    state.recoveryCodesSaved = false;
+    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+    await refreshStatus();
+    setToast("Vault creado exitosamente", "success");
+    return;
+  }
+
   if (action === "to-edit") {
     state.formPasswordVisible = false;
     await ensureSelectedSecret();
     state.screen = "FORM_EDIT";
     render();
+    return;
+  }
+
+  if (action === "delete-entry") {
+    const entry = getSelectedEntry();
+    if (!entry) {
+      setToast("No se encontro la entrada.", "error");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE esta credencial.\n\n" +
+      "¿Estás seguro de que quieres continuar?"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const res = await sendApiMessage("ENTRY_DELETE", { id: entry.id });
+      if (!res.ok) {
+        setToast(res.error?.message || "No se pudo eliminar la entry.", "error");
+        return;
+      }
+      state.selectedEntryId = null;
+      state.selectedSecret = null;
+      state.detailPasswordVisible = false;
+      state.screen = "LIST";
+      await refreshEntries();
+      setToast("Entry eliminada.", "success");
+    } catch (_error) {
+      setToast("No se pudo eliminar la entry.", "error");
+    }
     return;
   }
 
@@ -804,5 +1206,8 @@ root.addEventListener("click", async (event) => {
   }
 });
 
-render();
-void refreshStatus();
+// Restaurar recovery codes si existen antes de renderizar
+void restoreRecoveryCodesContext().then(() => {
+  render();
+  void refreshStatus();
+});

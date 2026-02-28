@@ -1,62 +1,146 @@
 import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shared/messages.ts";
-import { handleMessage } from "./session.ts";
+import { handleMessage, maybeRunScheduledHibpAudit } from "./session.ts";
+import { MESSAGE_TYPES } from "../shared/messages.ts";
+
+const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+const HIBP_AUDIT_ALARM = "g8keeper_hibp_schedule";
+const HIBP_AUDIT_INTERVAL_MINUTES = 6 * 60;
 
 /**
  * SECURITY FIX #18: Validación de origen de mensajes
- * 
- * VULNERABILIDAD ENCONTRADA:
- * - No se validaba el origen de los mensajes chrome.runtime.sendMessage()
- * - Sin validación explícita del sender.id
- * - Potencial cross-extension messaging o content script malicioso
- * 
- * RIESGO:
- * - ALTO: Otra extensión comprometida podría intentar acceder al vault
- * - Content scripts maliciosos podrían intentar enviar comandos
- * - Falta de defense-in-depth (aunque Chrome ya aísla, debemos validar)
- * 
- * SOLUCIÓN IMPLEMENTADA:
- * - Validar que sender.id coincide con chrome.runtime.id (misma extensión)
- * - Rechazar mensajes desde content scripts (sender.tab presente)
- * - Retornar error FORBIDDEN inmediatamente si validación falla
- * 
- * PROTECCIÓN:
- * - Solo el popup y otras páginas de la extensión pueden comunicarse
- * - Content scripts en páginas web: bloqueados
- * - Otras extensiones: bloqueadas
+ *
+ * - Validar sender.id === chrome.runtime.id
+ * - Permitir solo una allowlist explícita desde content scripts
+ * - Bloquear cualquier operación no autorizada desde páginas web
  */
+const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
+  MESSAGE_TYPES.VAULT_STATUS,
+  MESSAGE_TYPES.AUTOFILL_QUERY_BY_DOMAIN,
+  MESSAGE_TYPES.ENTRY_GET_SECRET,
+  MESSAGE_TYPES.UI_OPEN_POPUP,
+  MESSAGE_TYPES.OPEN_POPUP_FOR_SIGNUP,
+  MESSAGE_TYPES.GENERATE_PASSWORD,
+  MESSAGE_TYPES.ENTRY_ADD,
+  MESSAGE_TYPES.HIBP_AUDIT_STATUS,
+  MESSAGE_TYPES.HIBP_AUDIT_RESULT,
+  MESSAGE_TYPES.HIBP_AUDIT_SCHEDULE,
+]);
+
+const ensureAuditAlarm = async () => {
+  if (!chrome.alarms?.get || !chrome.alarms?.create) {
+    return;
+  }
+  const existing = await chrome.alarms.get(HIBP_AUDIT_ALARM);
+  if (existing) {
+    return;
+  }
+  await chrome.alarms.create(HIBP_AUDIT_ALARM, {
+    periodInMinutes: HIBP_AUDIT_INTERVAL_MINUTES,
+    delayInMinutes: 1,
+  });
+};
+
+async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
+  if (message.type === MESSAGE_TYPES.UI_OPEN_POPUP) {
+    try {
+      const source = message.payload?.source;
+      if (source === "signup") {
+        await chrome.storage.session.set({
+          [POPUP_CONTEXT_KEY]: {
+            source: "signup",
+            expiresAt: Date.now() + 120_000,
+          },
+        });
+      }
+      await chrome.action.openPopup();
+      return { ok: true, data: { opened: true } } as MessageResponseMap[MessageType];
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: { code: "POPUP_OPEN_FAILED", message: msg } } as MessageResponseMap[MessageType];
+    }
+  }
+
+  return handleMessage(message);
+}
+
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {
-  // Validar que el mensaje viene de la propia extensión
   if (!sender.id || sender.id !== chrome.runtime.id) {
-    sendResponse({ 
-      ok: false, 
-      error: { 
-        code: "FORBIDDEN", 
-        message: "Invalid message origin" 
-      } 
+    console.warn('[sw] FORBIDDEN: Invalid message origin');
+    sendResponse({
+      ok: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "Invalid message origin",
+      },
     });
     return true;
   }
 
-  // Rechazar mensajes desde content scripts (tabs/páginas web)
-  if (sender.tab) {
-    sendResponse({ 
-      ok: false, 
-      error: { 
-        code: "FORBIDDEN", 
-        message: "Content scripts are not allowed to communicate with vault" 
-      } 
-    });
-    return true;
+  const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+  const senderUrl = String(sender.url ?? "");
+  const senderTabUrl = String((sender.tab as { url?: string } | undefined)?.url ?? "");
+  const senderOrigin = String(
+    // origin/documentOrigin no siempre están tipados en @types/chrome según versión.
+    (sender as { origin?: string; documentOrigin?: string }).origin ??
+      (sender as { origin?: string; documentOrigin?: string }).documentOrigin ??
+      ""
+  );
+  const isExtensionPage =
+    senderUrl.startsWith(extensionOrigin) ||
+    senderOrigin.startsWith(extensionOrigin) ||
+    senderTabUrl.startsWith(extensionOrigin);
+  const isWebContentScript = Boolean(sender.tab) && !isExtensionPage;
+
+  // Solo aplicar allowlist estricta a content scripts inyectados en páginas web.
+  // Las páginas internas de la extensión (popup/report/options), aunque tengan sender.tab,
+  // deben tener acceso completo como trusted UI.
+  if (isWebContentScript) {
+    const type = message?.type;
+    if (!type || !CONTENT_SCRIPT_ALLOWED_TYPES.has(type)) {
+      console.warn("[G8keeper] Blocked content-script message", {
+        type,
+        senderUrl,
+        senderTabUrl,
+        senderOrigin,
+        hasTab: Boolean(sender.tab),
+      });
+      sendResponse({
+        ok: false,
+        error: {
+          code: "FORBIDDEN",
+          message: "Content scripts are not allowed to communicate with vault",
+        },
+      });
+      return true;
+    }
   }
 
-  handleMessage(message)
+  dispatchMessage(message)
     .then((result) => {
       sendResponse(result as MessageResponseMap[MessageType]);
     })
     .catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
+      console.error('[sw] Dispatch error:', msg, e);
       sendResponse({ ok: false, error: { code: "UNHANDLED_ERROR", message: msg } });
     });
 
   return true;
 });
+
+if (chrome.runtime.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(() => {
+    void ensureAuditAlarm();
+  });
+}
+
+if (chrome.alarms?.onAlarm?.addListener) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (!alarm || alarm.name !== HIBP_AUDIT_ALARM) {
+      return;
+    }
+    void maybeRunScheduledHibpAudit("alarm");
+  });
+}
+
+void ensureAuditAlarm();
