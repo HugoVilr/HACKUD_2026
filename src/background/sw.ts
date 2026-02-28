@@ -2,8 +2,6 @@ import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shar
 import { handleMessage } from "./session.ts";
 import { MESSAGE_TYPES } from "../shared/messages.ts";
 
-console.log('[sw] Service worker loaded');
-
 const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
 
 /**
@@ -47,9 +45,6 @@ async function dispatchMessage(message: AnyRequestMessage): Promise<MessageRespo
 }
 
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {
-  console.log('[sw] Received message:', message?.type, 'from', sender.tab ? 'content script' : 'extension');
-  console.log('[sw] Sender ID:', sender.id, 'Runtime ID:', chrome.runtime.id);
-  
   if (!sender.id || sender.id !== chrome.runtime.id) {
     console.warn('[sw] FORBIDDEN: Invalid message origin');
     sendResponse({
@@ -77,10 +72,8 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     }
   }
 
-  console.log('[sw] Dispatching message:', message?.type);
   dispatchMessage(message)
     .then((result) => {
-      console.log('[sw] Dispatch successful, sending response');
       sendResponse(result as MessageResponseMap[MessageType]);
     })
     .catch((e: unknown) => {

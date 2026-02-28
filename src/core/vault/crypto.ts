@@ -115,41 +115,28 @@ export function createEmptyPlaintext(vaultName?: string): VaultPlaintext {
  * - recoveryCodes: Array de 4 códigos en texto plano (SOLO para mostrar al usuario UNA VEZ)
  */
 export async function createEncryptedVault(master: string, vaultName?: string) {
-  console.log('[createEncryptedVault] Starting vault creation...');
-  
   try {
     const salt = crypto.getRandomValues(new Uint8Array(16)); // 128 bits
-    console.log('[createEncryptedVault] Generated salt');
     
     const iterations = DEFAULT_ITERS;
-    console.log('[createEncryptedVault] Deriving EXTRACTABLE key with', iterations, 'iterations');
     // Usar versión extractable para poder exportar la clave y cifrarla con recovery codes
     const key = await deriveKeyPBKDF2Extractable(master, salt, iterations);
-    console.log('[createEncryptedVault] Key derived successfully (extractable)');
 
     const plaintext = createEmptyPlaintext(vaultName);
-    console.log('[createEncryptedVault] Created plaintext structure');
     
     const { iv_b64, ciphertext_b64 } = await encryptJson(key, plaintext);
-    console.log('[createEncryptedVault] Encrypted vault data');
 
     // Generar recovery codes ultra seguros
-    console.log('[createEncryptedVault] Generating recovery codes...');
     const { codes, hashes } = await generateRecoveryCodes();
-    console.log('[createEncryptedVault] Recovery codes generated:', codes.length);
 
   // Exportar master key para poder cifrarla con los recovery codes
-  console.log('[createEncryptedVault] Exporting master key...');
   const keyJwk = await crypto.subtle.exportKey("jwk", key);
   const keyBytes = te.encode(JSON.stringify(keyJwk));
-  console.log('[createEncryptedVault] Master key exported');
 
   // Cifrar la master key con cada recovery code
-  console.log('[createEncryptedVault] Encrypting master key with recovery codes...');
   const encryptedKeys = [];
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
-    console.log(`[createEncryptedVault] Processing recovery code ${i + 1}/${codes.length}`);
     const rcSalt = crypto.getRandomValues(new Uint8Array(16));
     const rcKey = await deriveKeyPBKDF2(code, rcSalt, DEFAULT_ITERS);
     const rcIv = crypto.getRandomValues(new Uint8Array(12));
@@ -161,10 +148,8 @@ export async function createEncryptedVault(master: string, vaultName?: string) {
       ciphertext_b64: abToB64(rcCt),
     });
   }
-  console.log('[createEncryptedVault] All recovery codes encrypted');
 
   const t = nowIso();
-  console.log('[createEncryptedVault] Building final encrypted vault structure');
   const encrypted: EncryptedVault = {
     version: VAULT_VERSION,
     createdAt: t,
@@ -179,7 +164,6 @@ export async function createEncryptedVault(master: string, vaultName?: string) {
     },
   };
 
-  console.log('[createEncryptedVault] Vault creation completed successfully');
   return { encrypted, key, plaintext, recoveryCodes: codes };
   } catch (error) {
     console.error('[createEncryptedVault] ERROR during vault creation:', error);
