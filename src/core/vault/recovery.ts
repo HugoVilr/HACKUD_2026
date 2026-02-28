@@ -155,22 +155,30 @@ export async function generateRecoveryCodes(): Promise<{
   hashes: string[];
   masterSecret: string;
 }> {
-  // Generar master secret de 32 bytes (256 bits)
-  const masterSecret = crypto.getRandomValues(new Uint8Array(32));
+  console.log('[generateRecoveryCodes] Starting recovery codes generation...');
+  
+  try {
+    // Generar master secret de 32 bytes (256 bits)
+    const masterSecret = crypto.getRandomValues(new Uint8Array(32));
+    console.log('[generateRecoveryCodes] Master secret generated');
 
-  // Generar salt común para HKDF
-  const salt = crypto.getRandomValues(new Uint8Array(32));
+    // Generar salt común para HKDF
+    const salt = crypto.getRandomValues(new Uint8Array(32));
+    console.log('[generateRecoveryCodes] Salt generated');
 
-  const codes: string[] = [];
-  const hashes: string[] = [];
+    const codes: string[] = [];
+    const hashes: string[] = [];
 
   // Derivar 4 códigos únicos usando HKDF con diferentes info
   for (let i = 0; i < 4; i++) {
+    console.log(`[generateRecoveryCodes] Generating code ${i + 1}/4`);
     const info = te.encode(`recovery-code-v1-${i}`);
     const codeBytes = await hkdfSha512(masterSecret, salt, info, 32);
+    console.log(`[generateRecoveryCodes] HKDF derived for code ${i + 1}`);
     
     // Convertir a Base58 (formato amigable)
     const codeStr = toBase58(codeBytes);
+    console.log(`[generateRecoveryCodes] Code ${i + 1} converted to Base58:`, codeStr.substring(0, 10) + '...');
     codes.push(codeStr);
 
     // Hashear para almacenar (SHA-256)
@@ -178,11 +186,16 @@ export async function generateRecoveryCodes(): Promise<{
     hashes.push(u8ToB64(hash));
   }
 
+  console.log('[generateRecoveryCodes] All recovery codes generated successfully');
   return {
     codes,
     hashes,
     masterSecret: u8ToB64(masterSecret),
   };
+  } catch (error) {
+    console.error('[generateRecoveryCodes] ERROR during generation:', error);
+    throw error;
+  }
 }
 
 /**

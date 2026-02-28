@@ -552,7 +552,7 @@ const render = () => {
       ${state.toastMessage ? `<div class="toast ${state.toastTone}">${escapeHtml(state.toastMessage)}</div>` : ""}
 
       <div class="topline">
-        <pre class="ascii-art" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
+        <pre class="ascii-art" tabindex="-1" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
         <header class="row">
           <span class="chip">${routeLabels[state.route]}</span>
         </header>
@@ -581,46 +581,57 @@ root.addEventListener("submit", async (event) => {
   const data = new FormData(form);
 
   if (action === "create-vault") {
+    console.log('[popup] create-vault form submitted');
     const vaultName = String(data.get("vaultName") ?? "").trim();
     const master = String(data.get("master") ?? "");
     const confirm = String(data.get("confirm") ?? "");
 
     if (!master || !confirm) {
+      console.log('[popup] create-vault validation failed: missing passwords');
       setToast("Completa ambos campos de master password.", "error");
       return;
     }
     if (master.length < 8) {
+      console.log('[popup] create-vault validation failed: password too short');
       setToast("La master password debe tener al menos 8 caracteres.", "error");
       return;
     }
     if (master !== confirm) {
+      console.log('[popup] create-vault validation failed: passwords do not match');
       setToast("Las contrasenas no coinciden.", "error");
       return;
     }
 
+    console.log('[popup] create-vault sending VAULT_CREATE message...');
     try {
       const res = await sendApiMessage("VAULT_CREATE", {
         masterPassword: master,
         confirmPassword: confirm,
         vaultName: vaultName || undefined
       });
+      console.log('[popup] create-vault received response:', res);
 
       if (!res.ok) {
+        console.error('[popup] create-vault failed:', res.error);
         setToast(res.error?.message || "No se pudo crear el vault.", "error");
         return;
       }
 
+      console.log('[popup] create-vault success, checking for recovery codes...');
       // Capturar recovery codes de la respuesta
       if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
+        console.log('[popup] create-vault found', res.data.recoveryCodes.length, 'recovery codes');
         state.recoveryCodes = res.data.recoveryCodes;
         state.recoveryCodesAcknowledged = false;
         render(); // Re-render para mostrar los recovery codes
         return;
       }
 
+      console.log('[popup] create-vault no recovery codes, refreshing status...');
       await refreshStatus();
       setToast("Vault creado.", "success");
     } catch (_error) {
+      console.error('[popup] create-vault exception:', _error);
       setToast("Error al crear el vault.", "error");
     }
 

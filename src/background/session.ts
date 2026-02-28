@@ -376,23 +376,29 @@ export async function handleMessage(
       }
 
       case MESSAGE_TYPES.VAULT_CREATE: {
+        console.log('[session] VAULT_CREATE request received');
         const master = String(message.payload.masterPassword ?? "");
         const confirm = String(message.payload.confirmPassword ?? "");
         const vaultName = message.payload.vaultName ? String(message.payload.vaultName) : undefined;
 
         if (!master || !confirm) {
+          console.log('[session] VAULT_CREATE validation failed: missing passwords');
           return err("VALIDATION_ERROR", "Master password and confirm password are required.");
         }
 
         if (master !== confirm) {
+          console.log('[session] VAULT_CREATE validation failed: passwords do not match');
           return err("MASTER_MISMATCH", "Master passwords do not match.");
         }
         
+        console.log('[session] VAULT_CREATE validating master password strength...');
         // Validación de fortaleza de master password
         const strength = validateMasterStrength(master);
         if (!strength.valid) {
+          console.log('[session] VAULT_CREATE validation failed: weak password');
           return err("WEAK_MASTER", strength.reason || "Master password muy débil");
         }
+        console.log('[session] VAULT_CREATE master password validation passed');
 
         /**
          * TODO (SECURITY ENHANCEMENT): Integrar HIBP check para master password
@@ -417,8 +423,13 @@ export async function handleMessage(
          * RECOMENDACIÓN: Implementar como WARNING, no error bloqueante
          */
 
+        console.log('[session] VAULT_CREATE calling createEncryptedVault...');
         const { encrypted, key, plaintext, recoveryCodes } = await createEncryptedVault(master, vaultName);
+        console.log('[session] VAULT_CREATE vault created, recovery codes:', recoveryCodes?.length);
+        
+        console.log('[session] VAULT_CREATE saving encrypted vault...');
         await saveEncryptedVault(encrypted);
+        console.log('[session] VAULT_CREATE vault saved to storage');
 
         // dejamos sesión desbloqueada
         session.unlocked = true;
@@ -426,9 +437,11 @@ export async function handleMessage(
         session.plaintext = plaintext;
         session.encrypted = encrypted;
         touch();
+        console.log('[session] VAULT_CREATE session unlocked');
 
         // Retornar status con recovery codes (solo primera vez)
         const status = await getVaultStatus();
+        console.log('[session] VAULT_CREATE returning success with', recoveryCodes?.length, 'recovery codes');
         return ok({ ...status, recoveryCodes });
       }
 
