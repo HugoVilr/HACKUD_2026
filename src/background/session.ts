@@ -10,7 +10,7 @@ import {
   type VaultStatusData
 } from "../shared/messages.ts";
 import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault, deleteEncryptedVault } from "../core/vault/storage.ts";
-import { createEncryptedVault, reencryptVault, unlockEncryptedVault } from "../core/vault/crypto.ts";
+import { createEncryptedVault, reencryptVault, unlockEncryptedVault, unlockWithRecoveryCode } from "../core/vault/crypto.ts";
 import { deleteEntry, entryPublicView, getEntrySecret, listPublicEntries, upsertEntry } from "../core/vault/entries.ts";
 import type { EncryptedVault, VaultPlaintext } from "../core/vault/types.ts";
 
@@ -417,7 +417,8 @@ export async function handleMessage(
          * RECOMENDACIÓN: Implementar como WARNING, no error bloqueante
          */
 
-        const { encrypted, key, plaintext } = await createEncryptedVault(master, vaultName);
+        const { encrypted, key, plaintext, recoveryCodes } = await createEncryptedVault(master, vaultName);
+        
         await saveEncryptedVault(encrypted);
 
         // dejamos sesión desbloqueada
@@ -427,7 +428,9 @@ export async function handleMessage(
         session.encrypted = encrypted;
         touch();
 
-        return ok(await getVaultStatus());
+        // Retornar status con recovery codes (solo primera vez)
+        const status = await getVaultStatus();
+        return ok({ ...status, recoveryCodes });
       }
 
       case MESSAGE_TYPES.VAULT_UNLOCK: {
@@ -478,6 +481,77 @@ export async function handleMessage(
           await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
           
           return err("BAD_MASTER", "Master incorrecta o vault corrupto");
+        }
+      }
+
+      case MESSAGE_TYPES.VAULT_UNLOCK_RECOVERY: {
+        const recoveryCode = String(message.payload.recoveryCode ?? "").trim();
+        
+        if (!recoveryCode) {
+          return err("VALIDATION_ERROR", "Recovery code requerido");
+        }
+
+        // Rate limiting: verificar lockout (mismo que unlock normal)
+        if (Date.now() < unlockAttempts.lockedUntil) {
+          const remainingMs = unlockAttempts.lockedUntil - Date.now();
+          const remainingSec = Math.ceil(remainingMs / 1000);
+          return err(
+            "RATE_LIMITED", 
+            `Demasiados intentos fallidos. Intenta de nuevo en ${remainingSec}s`
+          );
+        }
+
+        const enc = await loadEncryptedVault();
+        if (!enc) return err("NO_VAULT", "No hay vault guardado");
+
+        if (!enc.recoveryCodes) {
+          return err("NO_RECOVERY_CODES", "Este vault no tiene recovery codes");
+        }
+
+        try {
+          const { key, plaintext, codeIndex } = await unlockWithRecoveryCode(enc, recoveryCode);
+          
+          // Marcar el código como usado
+          enc.recoveryCodes.used[codeIndex] = true;
+          await saveEncryptedVault(enc);
+          
+          // Unlock exitoso: resetear contador de intentos
+          unlockAttempts.count = 0;
+          unlockAttempts.lastAttempt = 0;
+          unlockAttempts.lockedUntil = 0;
+          
+          session.unlocked = true;
+          session.key = key;
+          session.plaintext = plaintext;
+          session.encrypted = enc;
+          touch();
+          
+          const status = await getVaultStatus();
+          return ok({ ...status, usedCodeIndex: codeIndex });
+        } catch (error: any) {
+          lockNow();
+          
+          // Incrementar contador de intentos fallidos
+          unlockAttempts.count++;
+          unlockAttempts.lastAttempt = Date.now();
+          
+          // Lockout después de 5 intentos fallidos
+          if (unlockAttempts.count >= 5) {
+            unlockAttempts.lockedUntil = Date.now() + 30_000; // 30 segundos
+          }
+          
+          // Delay progresivo
+          const delaySec = Math.min(unlockAttempts.count, 5);
+          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          
+          // Mensajes de error específicos
+          if (error.message === "Recovery code already used") {
+            return err("RECOVERY_CODE_USED", "Este recovery code ya fue utilizado");
+          } else if (error.message === "Invalid recovery code") {
+            return err("BAD_RECOVERY_CODE", "Recovery code inválido");
+          } else {
+            return err("BAD_RECOVERY_CODE", "Recovery code inválido o vault corrupto");
+          }
         }
       }
 
@@ -693,12 +767,32 @@ export async function handleMessage(
         }
       }
 
+      case MESSAGE_TYPES.EXPORT_RECOVERY_CODES: {
+        // Exportar recovery codes a archivo .txt
+        const { codes, vaultName } = message.payload as { codes: string[]; vaultName?: string };
+        
+        if (!codes || codes.length === 0) {
+          return err("VALIDATION", "No hay códigos para exportar");
+        }
+
+        const { exportRecoveryCodesAsText } = await import("../core/vault/recovery.ts");
+        const textContent = exportRecoveryCodesAsText(codes, vaultName);
+        
+        // Retornar el contenido como string (el frontend lo guardará como archivo)
+        const filename = `recovery-codes-${vaultName || 'vault'}-${Date.now()}.txt`;
+        
+        return ok({ blob: textContent, filename });
+      }
+
       default:
         return err("UNKNOWN_MESSAGE", "Mensaje no soportado");
     }
   } catch (e: any) {
+    console.error('[session] CRITICAL ERROR in handleApiMessage:', e);
+    console.error('[session] Error stack:', e?.stack);
+    console.error('[session] Message type:', message?.type);
     if (String(e?.message) === "LOCKED") return err("LOCKED", "Vault bloqueada");
-    return err("INTERNAL", "Error interno");
+    return err("INTERNAL", `Error interno: ${e?.message || 'Unknown error'}`);
   } finally {
     // Siempre limpiar datos sensibles del mensaje, incluso si hubo error
     cleanupSensitiveMessageData(message);

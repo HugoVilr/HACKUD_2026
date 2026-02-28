@@ -2,6 +2,8 @@ import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shar
 import { handleMessage } from "./session.ts";
 import { MESSAGE_TYPES } from "../shared/messages.ts";
 
+const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+
 /**
  * SECURITY FIX #18: Validación de origen de mensajes
  *
@@ -22,6 +24,15 @@ const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
 async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
   if (message.type === MESSAGE_TYPES.UI_OPEN_POPUP) {
     try {
+      const source = message.payload?.source;
+      if (source === "signup") {
+        await chrome.storage.session.set({
+          [POPUP_CONTEXT_KEY]: {
+            source: "signup",
+            expiresAt: Date.now() + 120_000,
+          },
+        });
+      }
       await chrome.action.openPopup();
       return { ok: true, data: { opened: true } } as MessageResponseMap[MessageType];
     } catch (e: unknown) {
@@ -35,6 +46,7 @@ async function dispatchMessage(message: AnyRequestMessage): Promise<MessageRespo
 
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {
   if (!sender.id || sender.id !== chrome.runtime.id) {
+    console.warn('[sw] FORBIDDEN: Invalid message origin');
     sendResponse({
       ok: false,
       error: {
@@ -48,6 +60,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
   if (sender.tab) {
     const type = message?.type;
     if (!type || !CONTENT_SCRIPT_ALLOWED_TYPES.has(type)) {
+      console.warn('[sw] FORBIDDEN: Content script not allowed for message type:', type);
       sendResponse({
         ok: false,
         error: {
@@ -65,6 +78,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     })
     .catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
+      console.error('[sw] Dispatch error:', msg, e);
       sendResponse({ ok: false, error: { code: "UNHANDLED_ERROR", message: msg } });
     });
 
