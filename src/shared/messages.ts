@@ -12,6 +12,7 @@ export const MESSAGE_TYPES = {
   ENTRY_UPDATE: "ENTRY_UPDATE",
   ENTRY_DELETE: "ENTRY_DELETE",
   ENTRY_GET_SECRET: "ENTRY_GET_SECRET",
+  AUTOFILL_QUERY_BY_DOMAIN: "AUTOFILL_QUERY_BY_DOMAIN",
   GENERATE_PASSWORD: "GENERATE_PASSWORD",
   /**
    * HIBP Pwned Passwords (k-anonymity) check.
@@ -67,6 +68,7 @@ export interface EntryGetSecretPayload {
 
 export interface EntryCreateInput {
   title: string;
+  domain?: string;
   username?: string;
   password: string;
   notes?: string;
@@ -100,6 +102,18 @@ export interface GeneratePasswordPayload {
   };
 }
 
+export interface AutofillQueryByDomainPayload {
+  hostname: string;
+}
+
+export interface AutofillCandidate {
+  id: string;
+  title: string;
+  username?: string;
+  domain?: string;
+  matchType: "exact" | "suffix" | "title";
+}
+
 export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
@@ -112,6 +126,7 @@ export interface MessagePayloadMap {
   ENTRY_ADD: EntryAddPayload;
   ENTRY_UPDATE: EntryUpdatePayload;
   ENTRY_DELETE: EntryDeletePayload;
+  AUTOFILL_QUERY_BY_DOMAIN: AutofillQueryByDomainPayload;
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
 }
@@ -135,6 +150,7 @@ export interface MessageResponseMap {
   ENTRY_ADD: ApiResult<{ entry: VaultEntry }>;
   ENTRY_UPDATE: ApiResult<{ entry: VaultEntry }>;
   ENTRY_DELETE: ApiResult<{ id: string }>;
+  AUTOFILL_QUERY_BY_DOMAIN: ApiResult<{ entries: AutofillCandidate[] }>;
   GENERATE_PASSWORD: ApiResult<{ password: string }>;
   HIBP_CHECK: ApiResult<{ count: number }>;
 }
