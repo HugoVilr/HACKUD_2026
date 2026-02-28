@@ -70,14 +70,14 @@ Cuando el usuario completa un formulario sin usar el vault:
 ## 📂 Archivos Modificados/Creados
 
 ### **Nuevo:**
-- `src/content/autofill.ts` - Content script principal (inyectado en todas las páginas)
+- `src/content/credential-assistant.ts` - Content script principal (inyectado en todas las páginas)
 
 ### **Modificados:**
 - `manifest.json` - Añadido content_scripts, permissions (activeTab, scripting), host_permissions
 - `src/shared/messages.ts` - Añadido `OPEN_POPUP_FOR_SIGNUP`, `AUTOFILL_CREDENTIALS`, `REQUEST_AUTOFILL` message types
 - `src/background/session.ts` - Handler para verificar vault desbloqueado y REQUEST_AUTOFILL
 - `src/background/sw.ts` - Whitelist de mensajes permitidos desde content scripts (VAULT_STATUS, OPEN_POPUP_FOR_SIGNUP)
-- `src/content/autofill.ts` - Heurísticas multiidioma, modal in-page completo, autofill automático
+- `src/content/credential-assistant.ts` - Heurísticas multiidioma, modal in-page completo, autofill automático
 - `package.json` - Script de build actualizado para compilar content script
 
 ## 🚀 Uso
@@ -153,7 +153,7 @@ npm run build
 ## 📊 Estadísticas de Build
 
 ```
-src/content/autofill.js  9.8kb
+src/content/credential-assistant.js  9.8kb
 ```
 
 ## 🔄 Flujo de Mensajes

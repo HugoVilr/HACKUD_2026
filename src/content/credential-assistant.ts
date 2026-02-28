@@ -26,6 +26,389 @@ interface DetectedForm {
   isSignup: boolean;
 }
 
+const G8_SIGNUP_SUGGESTION_STYLE = String.raw`
+  <style>
+    #g8keeper-signup-notification .g8keeper-toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: min(360px, calc(100vw - 24px));
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(154, 248, 157, 0.45);
+      color: #c3f6c4;
+      background:
+        linear-gradient(180deg, rgba(15, 32, 15, 0.95) 0%, rgba(8, 17, 8, 0.98) 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(154, 248, 157, 0.08),
+        0 14px 34px rgba(0, 0, 0, 0.45);
+      z-index: 999999;
+      font-family: "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+      animation: g8keeper-slide-in 160ms ease-out;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-icon {
+      font-size: 20px;
+      line-height: 1;
+      filter: drop-shadow(0 0 6px rgba(154, 248, 157, 0.35));
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-title {
+      display: block;
+      margin-bottom: 4px;
+      color: #cefccd;
+      font-size: 13px;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-text {
+      margin: 0 0 10px;
+      color: #9bc89f;
+      line-height: 1.35;
+      font-size: 12px;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-btn {
+      border-radius: 7px;
+      border: 1px solid rgba(154, 248, 157, 0.4);
+      padding: 6px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-btn--primary {
+      background: rgba(154, 248, 157, 0.18);
+      color: #cefccd;
+      border-color: rgba(206, 252, 205, 0.6);
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-btn--primary:hover {
+      background: rgba(154, 248, 157, 0.28);
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-btn--ghost {
+      background: transparent;
+      color: #9af89d;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-btn--ghost:hover {
+      background: rgba(154, 248, 157, 0.1);
+      color: #cefccd;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-close {
+      border: none;
+      background: transparent;
+      color: #9bc89f;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0 4px;
+    }
+
+    #g8keeper-signup-notification .g8keeper-toast-close:hover {
+      color: #cefccd;
+    }
+
+    @keyframes g8keeper-slide-in {
+      from {
+        transform: translateX(30px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+  </style>
+`;
+
+const G8_CREATE_MODAL_STYLE = String.raw`
+  <style>
+    #g8keeper-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(2px);
+      z-index: 999998;
+      animation: g8keeper-fade-in 140ms ease-out;
+    }
+
+    #g8keeper-modal-content {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(520px, calc(100vw - 24px));
+      max-height: min(88vh, 760px);
+      overflow-y: auto;
+      border-radius: 12px;
+      border: 1px solid rgba(154, 248, 157, 0.38);
+      background:
+        radial-gradient(circle at 14% 12%, #112511 0%, transparent 40%),
+        linear-gradient(180deg, rgba(15, 32, 15, 0.95) 0%, rgba(8, 17, 8, 0.98) 100%);
+      color: #c3f6c4;
+      box-shadow:
+        inset 0 0 0 1px rgba(154, 248, 157, 0.08),
+        0 24px 58px rgba(0, 0, 0, 0.55);
+      z-index: 999999;
+      font-family: "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+      animation: g8keeper-modal-up 180ms ease-out;
+    }
+
+    @keyframes g8keeper-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes g8keeper-modal-up {
+      from {
+        transform: translate(-50%, -46%);
+        opacity: 0;
+      }
+      to {
+        transform: translate(-50%, -50%);
+        opacity: 1;
+      }
+    }
+
+    #g8keeper-modal-content .g8keeper-modal-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(154, 248, 157, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    #g8keeper-modal-content .g8keeper-modal-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      color: #cefccd;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-shadow: 0 0 8px rgba(154, 248, 157, 0.25);
+    }
+
+    #g8keeper-modal-content .g8keeper-modal-body {
+      padding: 16px 18px;
+    }
+
+    #g8keeper-modal-content .g8keeper-security-note {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border: 1px solid rgba(154, 248, 157, 0.3);
+      border-radius: 8px;
+      background: rgba(154, 248, 157, 0.08);
+    }
+
+    #g8keeper-modal-content .g8keeper-security-note strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #cefccd;
+    }
+
+    #g8keeper-modal-content .g8keeper-security-note ul {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+      color: #9bc89f;
+      line-height: 1.35;
+    }
+
+    #g8keeper-modal-content .g8keeper-security-note code {
+      padding: 1px 4px;
+      border-radius: 4px;
+      border: 1px solid rgba(154, 248, 157, 0.28);
+      background: rgba(3, 12, 3, 0.9);
+      color: #cefccd;
+    }
+
+    #g8keeper-modal-content .g8keeper-form-group {
+      margin-bottom: 12px;
+    }
+
+    #g8keeper-modal-content .g8keeper-form-label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      font-size: 12px;
+      color: #9bc89f;
+    }
+
+    #g8keeper-modal-content .g8keeper-form-input {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid rgba(154, 248, 157, 0.35);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      box-sizing: border-box;
+      color: #c3f6c4;
+      background: rgba(3, 12, 3, 0.86);
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+
+    #g8keeper-modal-content .g8keeper-form-input::placeholder {
+      color: #6d8f6f;
+    }
+
+    #g8keeper-modal-content .g8keeper-form-input:focus {
+      outline: 1px solid rgba(206, 252, 205, 0.5);
+      border-color: rgba(206, 252, 205, 0.7);
+      box-shadow: 0 0 0 2px rgba(154, 248, 157, 0.14);
+    }
+
+    #g8keeper-modal-content .g8keeper-password-group {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    #g8keeper-modal-content .g8keeper-password-group input {
+      flex: 1;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-generate {
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(154, 248, 157, 0.5);
+      background: rgba(154, 248, 157, 0.16);
+      color: #cefccd;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 12px;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-generate:hover {
+      background: rgba(154, 248, 157, 0.25);
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-generate:disabled {
+      opacity: 0.65;
+      cursor: progress;
+    }
+
+    #g8keeper-modal-content .g8keeper-modal-footer {
+      padding: 14px 18px;
+      border-top: 1px solid rgba(154, 248, 157, 0.25);
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn {
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      border: 1px solid rgba(154, 248, 157, 0.35);
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-primary {
+      background: rgba(154, 248, 157, 0.18);
+      border-color: rgba(206, 252, 205, 0.6);
+      color: #cefccd;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-primary:hover {
+      background: rgba(154, 248, 157, 0.28);
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-primary:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-secondary {
+      background: transparent;
+      color: #9af89d;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-secondary:hover {
+      background: rgba(154, 248, 157, 0.1);
+      color: #cefccd;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-close {
+      background: transparent;
+      border: none;
+      color: #9bc89f;
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #g8keeper-modal-content .g8keeper-btn-close:hover {
+      background: rgba(154, 248, 157, 0.12);
+      color: #cefccd;
+    }
+
+    #g8keeper-modal-content .g8keeper-error {
+      color: #ffc1c1;
+      background: #6f2a2a;
+      border: 1px solid rgba(255, 127, 127, 0.5);
+      font-size: 12px;
+      margin-top: 8px;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    #g8keeper-modal-content .g8keeper-hint {
+      color: #6d8f6f;
+      font-size: 11px;
+      margin-top: 4px;
+      line-height: 1.3;
+    }
+
+    #g8keeper-modal-content::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #g8keeper-modal-content::-webkit-scrollbar-track {
+      background: rgba(154, 248, 157, 0.06);
+    }
+
+    #g8keeper-modal-content::-webkit-scrollbar-thumb {
+      background: rgba(154, 248, 157, 0.34);
+      border-radius: 999px;
+    }
+  </style>
+`;
+
 /**
  * Detectar si un formulario es de registro (signup) vs login
  * 
@@ -180,71 +563,21 @@ function showSignupSuggestion(form: HTMLFormElement): void {
   const notification = document.createElement('div');
   notification.id = 'g8keeper-signup-notification';
   notification.innerHTML = `
-    <div style="
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #1976d2;
-      color: white;
-      padding: 16px 20px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      z-index: 999999;
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      max-width: 320px;
-      animation: slideIn 0.3s ease-out;
-    ">
-      <div style="display: flex; align-items: start; gap: 12px;">
-        <span style="font-size: 24px;">🔐</span>
-        <div style="flex: 1;">
-          <strong style="display: block; margin-bottom: 4px;">G8keeper detectó un formulario de registro</strong>
-          <p style="margin: 0 0 12px 0; opacity: 0.9; font-size: 13px;">¿Quieres crear una contraseña segura desde el vault?</p>
-          <div style="display: flex; gap: 8px;">
-            <button id="g8keeper-accept" style="
-              background: white;
-              color: #1976d2;
-              border: none;
-              padding: 6px 12px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-weight: 500;
-              font-size: 13px;
-            ">Abrir Vault</button>
-            <button id="g8keeper-dismiss" style="
-              background: transparent;
-              color: white;
-              border: 1px solid rgba(255,255,255,0.5);
-              padding: 6px 12px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 13px;
-            ">Ignorar</button>
+    ${G8_SIGNUP_SUGGESTION_STYLE}
+    <div class="g8keeper-toast">
+      <div class="g8keeper-toast-row">
+        <span class="g8keeper-toast-icon">🔐</span>
+        <div class="g8keeper-toast-body">
+          <strong class="g8keeper-toast-title">G8keeper detectó un formulario de registro</strong>
+          <p class="g8keeper-toast-text">¿Quieres crear una contraseña segura desde el vault?</p>
+          <div class="g8keeper-toast-actions">
+            <button id="g8keeper-accept" class="g8keeper-toast-btn g8keeper-toast-btn--primary">Abrir Vault</button>
+            <button id="g8keeper-dismiss" class="g8keeper-toast-btn g8keeper-toast-btn--ghost">Ignorar</button>
           </div>
         </div>
-        <button id="g8keeper-close" style="
-          background: transparent;
-          border: none;
-          color: white;
-          cursor: pointer;
-          font-size: 20px;
-          padding: 0;
-          line-height: 1;
-        ">×</button>
+        <button id="g8keeper-close" class="g8keeper-toast-close">×</button>
       </div>
     </div>
-    <style>
-      @keyframes slideIn {
-        from {
-          transform: translateX(400px);
-          opacity: 0;
-        }
-        to {
-          transform: translateX(0);
-          opacity: 1;
-        }
-      }
-    </style>
   `;
 
   document.body.appendChild(notification);
@@ -282,201 +615,7 @@ function showCreateEntryModal(form: HTMLFormElement): void {
   const modal = document.createElement('div');
   modal.id = 'g8keeper-create-modal';
   modal.innerHTML = `
-    <style>
-      #g8keeper-modal-backdrop {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7);
-        z-index: 999998;
-        animation: g8keeper-fadeIn 0.2s ease-out;
-      }
-      
-      #g8keeper-modal-content {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-        z-index: 999999;
-        width: 90%;
-        max-width: 480px;
-        max-height: 90vh;
-        overflow-y: auto;
-        animation: g8keeper-slideUp 0.3s ease-out;
-        font-family: system-ui, -apple-system, sans-serif;
-      }
-      
-      @keyframes g8keeper-fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      
-      @keyframes g8keeper-slideUp {
-        from { 
-          transform: translate(-50%, -40%);
-          opacity: 0;
-        }
-        to { 
-          transform: translate(-50%, -50%);
-          opacity: 1;
-        }
-      }
-      
-      .g8keeper-modal-header {
-        padding: 24px 24px 16px;
-        border-bottom: 1px solid #e0e0e0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-      
-      .g8keeper-modal-title {
-        margin: 0;
-        font-size: 20px;
-        font-weight: 600;
-        color: #1976d2;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      
-      .g8keeper-modal-body {
-        padding: 24px;
-      }
-      
-      .g8keeper-form-group {
-        margin-bottom: 20px;
-      }
-      
-      .g8keeper-form-label {
-        display: block;
-        margin-bottom: 8px;
-        font-weight: 500;
-        font-size: 14px;
-        color: #333;
-      }
-      
-      .g8keeper-form-input {
-        width: 100%;
-        padding: 10px 12px;
-        border: 2px solid #e0e0e0;
-        border-radius: 6px;
-        font-size: 14px;
-        font-family: inherit;
-        box-sizing: border-box;
-        transition: border-color 0.2s;
-      }
-      
-      .g8keeper-form-input:focus {
-        outline: none;
-        border-color: #1976d2;
-      }
-      
-      .g8keeper-password-group {
-        display: flex;
-        gap: 8px;
-      }
-      
-      .g8keeper-password-group input {
-        flex: 1;
-      }
-      
-      .g8keeper-btn-generate {
-        padding: 10px 16px;
-        background: #4caf50;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 500;
-        font-size: 13px;
-        white-space: nowrap;
-        transition: background 0.2s;
-      }
-      
-      .g8keeper-btn-generate:hover {
-        background: #45a049;
-      }
-      
-      .g8keeper-modal-footer {
-        padding: 16px 24px;
-        border-top: 1px solid #e0e0e0;
-        display: flex;
-        gap: 12px;
-        justify-content: flex-end;
-      }
-      
-      .g8keeper-btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 500;
-        font-size: 14px;
-        transition: all 0.2s;
-      }
-      
-      .g8keeper-btn-primary {
-        background: #1976d2;
-        color: white;
-      }
-      
-      .g8keeper-btn-primary:hover {
-        background: #1565c0;
-      }
-      
-      .g8keeper-btn-primary:disabled {
-        background: #ccc;
-        cursor: not-allowed;
-      }
-      
-      .g8keeper-btn-secondary {
-        background: transparent;
-        color: #666;
-        border: 1px solid #ddd;
-      }
-      
-      .g8keeper-btn-secondary:hover {
-        background: #f5f5f5;
-      }
-      
-      .g8keeper-btn-close {
-        background: transparent;
-        border: none;
-        color: #666;
-        cursor: pointer;
-        font-size: 24px;
-        line-height: 1;
-        padding: 0;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      
-      .g8keeper-btn-close:hover {
-        background: #f5f5f5;
-      }
-      
-      .g8keeper-error {
-        color: #d32f2f;
-        font-size: 13px;
-        margin-top: 8px;
-      }
-      
-      .g8keeper-hint {
-        color: #666;
-        font-size: 12px;
-        margin-top: 4px;
-      }
-    </style>
+    ${G8_CREATE_MODAL_STYLE}
     
     <div id="g8keeper-modal-backdrop"></div>
     <div id="g8keeper-modal-content">
@@ -489,6 +628,15 @@ function showCreateEntryModal(form: HTMLFormElement): void {
       </div>
       
       <div class="g8keeper-modal-body">
+        <div class="g8keeper-security-note">
+          <strong>Credencial segura recomendada</strong>
+          <ul>
+            <li>Mínimo 12 caracteres.</li>
+            <li>Combina mayúsculas, minúsculas, números y símbolos.</li>
+            <li>Evita secuencias y repeticiones como <code>aaa</code> o <code>123</code>.</li>
+          </ul>
+        </div>
+
         <div class="g8keeper-form-group">
           <label class="g8keeper-form-label">Título</label>
           <input 

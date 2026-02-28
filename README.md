@@ -10,7 +10,7 @@ Proyecto desarrollado para **HackUDC 2026** - Reto: "Seeking the Perfect Key" - 
 - [ ] Eliminar contraseñas individuales
 - [ ] Autocompletar
 - [ ] Guardar contraseñas que acabas de crear
-- [ ] Guardar contraseñas automático recomendado
+- [x] Guardar contraseñas automático recomendado
 - [ ] Historial de contraseñas
 
 
