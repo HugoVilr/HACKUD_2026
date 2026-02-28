@@ -3,11 +3,8 @@ const state = {
   screen: "LIST",
   vaultName: "",
   mockMaster: "",
-  createError: "",
-  unlockError: "",
   search: "",
   selectedEntryId: null,
-  formError: "",
   formPasswordVisible: false,
   detailPasswordVisible: false,
   toastMessage: "",
@@ -41,11 +38,19 @@ const routeLabels = {
   UNLOCKED: "Unlocked"
 };
 
-let toastTimeoutId = null;
+const ASCII_ART = [
+  "                                                    ",
+  " (        (          )                              ",
+  " )\\ )     )\\ (    ( /(    (    (           (   (    ",
+  "(()/(    ((_))\\   )\\())  ))\\  ))\\ `  )    ))\\  )(   ",
+  " /(_))_    _((_) ((_)\\  /((_)/((_)/(/(   /((_)(()\\  ",
+  "(_)) __|  ( _ )  | |(_)(_)) (_)) ((_)_\\ (_))   ((_) ",
+  "  | (_ |  / _ \\  | / / / -_)/ -_)| '_ \\)/ -_) | '_| ",
+  "   \\___|  \\___/  |_\\_\\ \\___|\\___|| .__/ \\___| |_|   ",
+  "                                 |_|                "
+].join("\n");
 
-const isPopupRoute = (value) => {
-  return value === "NO_VAULT" || value === "LOCKED" || value === "UNLOCKED";
-};
+let toastTimeoutId = null;
 
 const escapeHtml = (value) => {
   return String(value)
@@ -101,9 +106,6 @@ const maskPassword = (value) => {
 
 const setRoute = (route) => {
   state.route = route;
-  state.createError = "";
-  state.unlockError = "";
-  state.formError = "";
   state.formPasswordVisible = false;
   state.detailPasswordVisible = false;
   state.search = "";
@@ -138,7 +140,6 @@ const renderCreateVault = () => {
         <span>Confirmar master</span>
         <input name="confirm" type="password" required minlength="8" />
       </label>
-      ${state.createError ? `<p class="error">${escapeHtml(state.createError)}</p>` : ""}
       <button class="primary" type="submit">Crear vault</button>
     </form>
   `;
@@ -157,7 +158,6 @@ const renderUnlock = () => {
         <span>Master password</span>
         <input name="master" type="password" required />
       </label>
-      ${state.unlockError ? `<p class="error">${escapeHtml(state.unlockError)}</p>` : ""}
       <button class="primary" type="submit">Desbloquear</button>
     </form>
   `;
@@ -257,7 +257,6 @@ const renderEntryForm = (mode) => {
         <span>Notas</span>
         <textarea name="notes" rows="3" maxlength="280">${escapeHtml(notes)}</textarea>
       </label>
-      ${state.formError ? `<p class="error">${escapeHtml(state.formError)}</p>` : ""}
       <button class="primary" type="submit">Guardar</button>
     </form>
   `;
@@ -335,26 +334,22 @@ const routeBody = () => {
 };
 
 const render = () => {
+  const popupModeClass = state.route === "UNLOCKED" ? "popup popup--unlocked" : "popup popup--auth";
+
   root.innerHTML = `
-    <main class="popup">
+    <main class="${popupModeClass}">
       ${state.toastMessage ? `<div class="toast ${state.toastTone}">${escapeHtml(state.toastMessage)}</div>` : ""}
 
-      <header class="row">
-        <span class="chip">${routeLabels[state.route]}</span>
-      </header>
+      <div class="topline">
+        <pre class="ascii-art" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
+        <header class="row">
+          <span class="chip">${routeLabels[state.route]}</span>
+        </header>
+      </div>
 
       <section class="card">
         ${routeBody()}
       </section>
-
-      <footer class="router">
-        <span class="router-label">Demo route override</span>
-        <div class="router-actions">
-          <button type="button" data-route="NO_VAULT">NO_VAULT</button>
-          <button type="button" data-route="LOCKED">LOCKED</button>
-          <button type="button" data-route="UNLOCKED">UNLOCKED</button>
-        </div>
-      </footer>
     </main>
   `;
 };
@@ -379,18 +374,15 @@ root.addEventListener("submit", (event) => {
     const confirm = String(data.get("confirm") ?? "");
 
     if (!master || !confirm) {
-      state.createError = "Completa ambos campos de master password.";
-      render();
+      setToast("Completa ambos campos de master password.", "error");
       return;
     }
     if (master.length < 8) {
-      state.createError = "La master password debe tener al menos 8 caracteres.";
-      render();
+      setToast("La master password debe tener al menos 8 caracteres.", "error");
       return;
     }
     if (master !== confirm) {
-      state.createError = "Las contrasenas no coinciden.";
-      render();
+      setToast("Las contrasenas no coinciden.", "error");
       return;
     }
 
@@ -405,18 +397,15 @@ root.addEventListener("submit", (event) => {
   if (action === "unlock-vault") {
     const master = String(data.get("master") ?? "");
     if (!master) {
-      state.unlockError = "Introduce tu master password.";
-      render();
+      setToast("Introduce tu master password.", "error");
       return;
     }
     if (!state.mockMaster) {
-      state.unlockError = "Vault corrupto o inexistente. Crea un vault nuevo.";
-      render();
+      setToast("Vault corrupto o inexistente. Crea un vault nuevo.", "error");
       return;
     }
     if (master !== state.mockMaster) {
-      state.unlockError = "Master incorrecta. Revisa mayusculas y vuelve a intentar.";
-      render();
+      setToast("Master incorrecta. Revisa mayusculas y vuelve a intentar.", "error");
       return;
     }
 
@@ -433,8 +422,7 @@ root.addEventListener("submit", (event) => {
     const notes = String(data.get("notes") ?? "").trim();
 
     if (!title || !password) {
-      state.formError = "Titulo y password son obligatorios.";
-      render();
+      setToast("Titulo y password son obligatorios.", "error");
       return;
     }
 
@@ -446,7 +434,6 @@ root.addEventListener("submit", (event) => {
         }
         return { ...entry, title, username, password, notes };
       });
-      state.formError = "";
       state.screen = "DETAIL";
       state.detailPasswordVisible = false;
       setToast("Entry actualizada.", "success");
@@ -463,7 +450,6 @@ root.addEventListener("submit", (event) => {
     };
 
     state.entries = [newEntry, ...state.entries];
-    state.formError = "";
     selectEntry(newEntry.id);
     setToast("Entry creada.", "success");
     render();
@@ -488,14 +474,6 @@ root.addEventListener("click", async (event) => {
     return;
   }
 
-  const routeButton = target.closest("[data-route]");
-  const nextRoute = routeButton?.dataset.route;
-  if (nextRoute && isPopupRoute(nextRoute)) {
-    setRoute(nextRoute);
-    render();
-    return;
-  }
-
   const actionButton = target.closest("[data-action]");
   const action = actionButton?.dataset.action;
   if (!action) {
@@ -509,21 +487,18 @@ root.addEventListener("click", async (event) => {
     return;
   }
   if (action === "to-add") {
-    state.formError = "";
     state.formPasswordVisible = false;
     state.screen = "FORM_ADD";
     render();
     return;
   }
   if (action === "to-list") {
-    state.formError = "";
     state.detailPasswordVisible = false;
     state.screen = "LIST";
     render();
     return;
   }
   if (action === "to-edit") {
-    state.formError = "";
     state.formPasswordVisible = false;
     state.screen = "FORM_EDIT";
     render();
