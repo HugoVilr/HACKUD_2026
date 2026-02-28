@@ -13,6 +13,7 @@ export const MESSAGE_TYPES = {
   ENTRY_DELETE: "ENTRY_DELETE",
   ENTRY_GET_SECRET: "ENTRY_GET_SECRET",
   AUTOFILL_QUERY_BY_DOMAIN: "AUTOFILL_QUERY_BY_DOMAIN",
+  UI_OPEN_POPUP: "UI_OPEN_POPUP",
   GENERATE_PASSWORD: "GENERATE_PASSWORD",
   /**
    * HIBP Pwned Passwords (k-anonymity) check.
@@ -127,6 +128,7 @@ export interface MessagePayloadMap {
   ENTRY_UPDATE: EntryUpdatePayload;
   ENTRY_DELETE: EntryDeletePayload;
   AUTOFILL_QUERY_BY_DOMAIN: AutofillQueryByDomainPayload;
+  UI_OPEN_POPUP: undefined;
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
 }
@@ -151,6 +153,7 @@ export interface MessageResponseMap {
   ENTRY_UPDATE: ApiResult<{ entry: VaultEntry }>;
   ENTRY_DELETE: ApiResult<{ id: string }>;
   AUTOFILL_QUERY_BY_DOMAIN: ApiResult<{ entries: AutofillCandidate[] }>;
+  UI_OPEN_POPUP: ApiResult<{ opened: boolean }>;
   GENERATE_PASSWORD: ApiResult<{ password: string }>;
   HIBP_CHECK: ApiResult<{ count: number }>;
 }

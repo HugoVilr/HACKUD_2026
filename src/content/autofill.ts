@@ -8,14 +8,22 @@ type SecretResponse = {
   error?: { message?: string };
 };
 
+type OpenPopupResponse = {
+  ok: boolean;
+  data?: { opened?: boolean };
+  error?: { message?: string };
+};
+
 const BUTTON_ID = "g8keeper-autofill-btn";
 const BUTTON_CLASS = "g8keeper-autofill-btn";
 const PANEL_ID = "g8keeper-autofill-panel";
 const PANEL_CLASS = "g8keeper-autofill-panel";
 
 let activeInput: HTMLInputElement | null = null;
+let lastFocusedInput: HTMLInputElement | null = null;
 let hideTimeout: number | null = null;
 let selectedEntryId: string | null = null;
+let awaitingUnlockFromPopup = false;
 
 function errorMessage(err: unknown): string {
   if (err instanceof Error && err.message) return err.message;
@@ -25,9 +33,24 @@ function errorMessage(err: unknown): string {
 
 async function sendMessageSafe<T = any>(message: unknown): Promise<T> {
   if (!chrome?.runtime?.id) {
-    throw new Error("runtime no disponible (recarga la extension)");
+    throw new Error("runtime no disponible (recarga la extension y la pagina)");
   }
   return chrome.runtime.sendMessage(message) as Promise<T>;
+}
+
+async function openUnlockPopup(): Promise<void> {
+  awaitingUnlockFromPopup = true;
+  const res = await sendMessageSafe<OpenPopupResponse>({ type: "UI_OPEN_POPUP" });
+  if (res?.ok) {
+    renderPanelMessage("Introduce la master password en el popup de la extension.");
+    window.setTimeout(() => restoreFloatingUiAfterReturn(), 120);
+    return;
+  }
+
+  const fallbackUrl = chrome.runtime.getURL("src/popup/popup.html");
+  window.open(fallbackUrl, "_blank", "noopener");
+  renderPanelMessage("No se pudo abrir el popup. Abri una pestana de la extension para desbloquear.", "warning");
+  window.setTimeout(() => restoreFloatingUiAfterReturn(), 120);
 }
 
 function isFillableInput(el: EventTarget | null): el is HTMLInputElement {
@@ -52,7 +75,14 @@ function getButton(): HTMLButtonElement {
   btn.id = BUTTON_ID;
   btn.className = BUTTON_CLASS;
   btn.type = "button";
-  btn.textContent = "G8keeper";
+  btn.setAttribute("aria-label", "G8keeper Autofill");
+  btn.setAttribute("title", "G8keeper Autofill");
+  btn.dataset.state = "idle";
+
+  const icon = document.createElement("span");
+  icon.className = "g8keeper-autofill-btn__icon";
+  icon.setAttribute("aria-hidden", "true");
+  btn.appendChild(icon);
 
   btn.addEventListener("mousedown", (ev) => {
     ev.preventDefault();
@@ -85,20 +115,31 @@ function getPanel(): HTMLDivElement {
 
 function setButtonState(state: MiniButtonState): void {
   const btn = getButton();
-  if (state === "idle") btn.textContent = "G8keeper";
-  if (state === "checking") btn.textContent = "Comprobando...";
-  if (state === "locked") btn.textContent = "Vault bloqueado";
-  if (state === "ready") btn.textContent = "Vault listo";
-  if (state === "error") btn.textContent = "Sin conexion";
+  btn.dataset.state = state;
+
+  if (state === "idle") btn.title = "G8keeper Autofill";
+  if (state === "checking") btn.title = "Comprobando estado...";
+  if (state === "locked") btn.title = "Vault bloqueado";
+  if (state === "ready") btn.title = "Vault listo";
+  if (state === "error") btn.title = "Error de conexion";
 }
 
 function positionFloatingUi(input: HTMLInputElement): void {
   const btn = getButton();
   const panel = getPanel();
   const rect = input.getBoundingClientRect();
+  const btnSize = 34;
+  const viewportPadding = 8;
+  const insideOffset = 8;
 
-  btn.style.left = `${Math.max(8, rect.right - 110)}px`;
-  btn.style.top = `${Math.max(8, rect.top + 6)}px`;
+  const rawLeft = rect.right - btnSize - insideOffset;
+  const boundedLeft = Math.min(
+    window.innerWidth - btnSize - viewportPadding,
+    Math.max(viewportPadding, rawLeft)
+  );
+
+  btn.style.left = `${boundedLeft}px`;
+  btn.style.top = `${Math.max(viewportPadding, rect.top + (rect.height - btnSize) / 2)}px`;
   btn.classList.add("g8keeper-autofill-btn--visible");
 
   panel.style.left = `${Math.max(8, rect.left)}px`;
@@ -115,6 +156,44 @@ function hideFloatingUiSoon(): void {
     panel.classList.remove("g8keeper-autofill-panel--visible");
     activeInput = null;
   }, 180);
+}
+
+function hideFloatingUiNow(): void {
+  const btn = getButton();
+  const panel = getPanel();
+  btn.classList.remove("g8keeper-autofill-btn--visible");
+  panel.classList.remove("g8keeper-autofill-panel--visible");
+  activeInput = null;
+}
+
+function restoreFloatingUiAfterReturn(): void {
+  if (activeInput) return;
+  if (!isUsableInput(lastFocusedInput)) return;
+
+  activeInput = lastFocusedInput;
+  positionFloatingUi(activeInput);
+  setButtonState("idle");
+}
+
+async function syncUnlockStateAfterReturn(): Promise<void> {
+  if (!awaitingUnlockFromPopup) return;
+
+  try {
+    const status = await sendMessageSafe<any>({ type: "VAULT_STATUS" });
+    if (status?.ok && status.data?.hasVault && !status.data?.locked) {
+      // Unlock correcto: ocultar candado y mensaje.
+      awaitingUnlockFromPopup = false;
+      hideFloatingUiNow();
+      return;
+    }
+  } catch {
+    // Ignore.
+  }
+
+  // Sigue bloqueado: mantener espera hasta que el usuario desbloquee de verdad.
+  awaitingUnlockFromPopup = true;
+  restoreFloatingUiAfterReturn();
+  setButtonState("locked");
 }
 
 function renderPanelMessage(message: string, tone: "info" | "warning" = "info"): void {
@@ -300,9 +379,15 @@ async function openSuggestions(): Promise<void> {
       return;
     }
 
-    if (!status.data?.hasVault || status.data?.locked) {
+    if (!status.data?.hasVault) {
       setButtonState("locked");
-      renderPanelMessage("Vault bloqueado. Abre el popup y desbloquea.", "warning");
+      renderPanelMessage("No hay vault creado. Crea uno desde el popup.", "warning");
+      return;
+    }
+
+    if (status.data?.locked) {
+      setButtonState("locked");
+      await openUnlockPopup();
       return;
     }
 
@@ -328,13 +413,17 @@ async function openSuggestions(): Promise<void> {
     renderCandidates(candidates);
   } catch (err) {
     setButtonState("error");
-    renderPanelMessage(`Error de comunicacion: ${errorMessage(err)}`, "warning");
+    renderPanelMessage(
+      `Error de comunicacion: ${errorMessage(err)}. Si persiste, recarga extension y pagina.`,
+      "warning"
+    );
   }
 }
 
 window.addEventListener("focusin", (ev) => {
   if (!isFillableInput(ev.target)) return;
   activeInput = ev.target;
+  lastFocusedInput = ev.target;
   selectedEntryId = null;
   if (hideTimeout) window.clearTimeout(hideTimeout);
   positionFloatingUi(activeInput);
@@ -356,5 +445,24 @@ window.addEventListener("resize", () => {
 });
 
 window.addEventListener("focusout", () => {
+  // Si la pagina pierde foco (por ejemplo al abrir el popup), no ocultar.
+  if (!document.hasFocus()) return;
   hideFloatingUiSoon();
+});
+
+window.addEventListener("focus", () => {
+  restoreFloatingUiAfterReturn();
+  void syncUnlockStateAfterReturn();
+});
+
+window.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    restoreFloatingUiAfterReturn();
+    void syncUnlockStateAfterReturn();
+  }
+});
+
+window.addEventListener("pageshow", () => {
+  restoreFloatingUiAfterReturn();
+  void syncUnlockStateAfterReturn();
 });

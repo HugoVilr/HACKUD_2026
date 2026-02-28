@@ -1,5 +1,6 @@
 import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shared/messages.ts";
 import { handleMessage } from "./session.ts";
+import { MESSAGE_TYPES } from "../shared/messages.ts";
 
 /**
  * SECURITY FIX #18: Validación de origen de mensajes
@@ -24,6 +25,27 @@ import { handleMessage } from "./session.ts";
  * - Content scripts en páginas web: bloqueados
  * - Otras extensiones: bloqueadas
  */
+const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
+  MESSAGE_TYPES.VAULT_STATUS,
+  MESSAGE_TYPES.AUTOFILL_QUERY_BY_DOMAIN,
+  MESSAGE_TYPES.ENTRY_GET_SECRET,
+  MESSAGE_TYPES.UI_OPEN_POPUP,
+]);
+
+async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
+  if (message.type === MESSAGE_TYPES.UI_OPEN_POPUP) {
+    try {
+      await chrome.action.openPopup();
+      return { ok: true, data: { opened: true } } as MessageResponseMap[MessageType];
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: { code: "POPUP_OPEN_FAILED", message: msg } } as MessageResponseMap[MessageType];
+    }
+  }
+
+  return handleMessage(message);
+}
+
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {
   // Validar que el mensaje viene de la propia extensión
   if (!sender.id || sender.id !== chrome.runtime.id) {
@@ -37,8 +59,21 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     return true;
   }
 
-  // Rechazar mensajes desde content scripts (tabs/páginas web)
+  // Rechazar mensajes desde content scripts salvo allowlist de autofill.
   if (sender.tab) {
+    const type = (message as AnyRequestMessage | undefined)?.type;
+    if (type && CONTENT_SCRIPT_ALLOWED_TYPES.has(type)) {
+      dispatchMessage(message)
+        .then((result) => {
+          sendResponse(result as MessageResponseMap[MessageType]);
+        })
+        .catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          sendResponse({ ok: false, error: { code: "UNHANDLED_ERROR", message: msg } });
+        });
+      return true;
+    }
+
     sendResponse({ 
       ok: false, 
       error: { 
@@ -49,7 +84,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     return true;
   }
 
-  handleMessage(message)
+  dispatchMessage(message)
     .then((result) => {
       sendResponse(result as MessageResponseMap[MessageType]);
     })
