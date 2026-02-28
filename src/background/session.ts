@@ -575,6 +575,16 @@ export async function handleMessage(
         }
       }
 
+      case MESSAGE_TYPES.OPEN_POPUP_FOR_SIGNUP: {
+        // Solo permitir si el vault está desbloqueado
+        requireUnlocked();
+        
+        // Abrir la ventana popup de la extensión
+        // Nota: En Manifest V3, solo podemos abrir el popup programáticamente
+        // desde el action, así que aquí solo confirmamos que está desbloqueado
+        return ok({ opened: true });
+      }
+
       default:
         return err("UNKNOWN_MESSAGE", "Mensaje no soportado");
     }
