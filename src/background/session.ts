@@ -247,6 +247,52 @@ function validateMasterStrength(pwd: string): { valid: boolean; reason?: string 
   return { valid: true };
 }
 
+/**
+ * SECURITY FIX #19: Limpieza de datos sensibles en mensajes
+ * 
+ * VULNERABILIDAD ENCONTRADA:
+ * - Master password permanece en el objeto message después de procesarlo
+ * - Si hay logging/debugging activo, puede quedar en memoria más tiempo
+ * - El objeto message puede ser referenciado desde otros contextos
+ * 
+ * RIESGO:
+ * - MEDIO: Exposición prolongada de master password en memoria
+ * - Mayor ventana para memory dump attacks
+ * - Potencial leak en logs de desarrollo
+ * 
+ * SOLUCIÓN IMPLEMENTADA:
+ * - Sobrescribir campos sensibles después de usarlos
+ * - Aplicar a masterPassword, password, y confirmPassword
+ * - Usar técnica de sobrescritura con \0 antes de vaciar
+ * 
+ * LIMITACIÓN:
+ * - JavaScript strings son inmutables (crean copias)
+ * - No garantiza limpieza total pero reduce ventana de exposición
+ */
+function cleanupSensitiveMessageData(message: AnyRequestMessage): void {
+  if (!message.payload) return;
+
+  const payload = message.payload as any;
+
+  // Limpiar master password
+  if (typeof payload.masterPassword === 'string' && payload.masterPassword) {
+    payload.masterPassword = '\0'.repeat(payload.masterPassword.length);
+    payload.masterPassword = '';
+  }
+
+  // Limpiar confirm password
+  if (typeof payload.confirmPassword === 'string' && payload.confirmPassword) {
+    payload.confirmPassword = '\0'.repeat(payload.confirmPassword.length);
+    payload.confirmPassword = '';
+  }
+
+  // Limpiar password de entries (cuando se crea/edita)
+  if (payload.entry && typeof payload.entry.password === 'string' && payload.entry.password) {
+    payload.entry.password = '\0'.repeat(payload.entry.password.length);
+    payload.entry.password = '';
+  }
+}
+
 export async function handleMessage(
   message: AnyRequestMessage
 ): Promise<MessageResponseMap[MessageType]> {
@@ -535,5 +581,8 @@ export async function handleMessage(
   } catch (e: any) {
     if (String(e?.message) === "LOCKED") return err("LOCKED", "Vault bloqueada");
     return err("INTERNAL", "Error interno");
+  } finally {
+    // Siempre limpiar datos sensibles del mensaje, incluso si hubo error
+    cleanupSensitiveMessageData(message);
   }
 }
