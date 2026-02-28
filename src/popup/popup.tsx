@@ -131,12 +131,21 @@ const getSelectedEntry = () => {
 };
 
 const sendApiMessage = async (type, payload) => {
-  const message = payload === undefined ? { type } : { type, payload };
-  const res = await chrome.runtime.sendMessage(message);
-  if (!res || typeof res.ok !== "boolean") {
-    throw new Error("api-bad-response");
+  console.log('[sendApiMessage] Sending message:', type, 'with payload:', payload ? 'present' : 'none');
+  try {
+    const message = payload === undefined ? { type } : { type, payload };
+    console.log('[sendApiMessage] Message object:', { type, hasPayload: payload !== undefined });
+    const res = await chrome.runtime.sendMessage(message);
+    console.log('[sendApiMessage] Received response:', res);
+    if (!res || typeof res.ok !== "boolean") {
+      console.error('[sendApiMessage] Invalid response format:', res);
+      throw new Error("api-bad-response");
+    }
+    return res;
+  } catch (error) {
+    console.error('[sendApiMessage] Error sending/receiving message:', error);
+    throw error;
   }
-  return res;
 };
 
 const consumeSignupUnlockContext = async () => {

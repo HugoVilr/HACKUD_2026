@@ -800,8 +800,11 @@ export async function handleMessage(
         return err("UNKNOWN_MESSAGE", "Mensaje no soportado");
     }
   } catch (e: any) {
+    console.error('[session] CRITICAL ERROR in handleApiMessage:', e);
+    console.error('[session] Error stack:', e?.stack);
+    console.error('[session] Message type:', message?.type);
     if (String(e?.message) === "LOCKED") return err("LOCKED", "Vault bloqueada");
-    return err("INTERNAL", "Error interno");
+    return err("INTERNAL", `Error interno: ${e?.message || 'Unknown error'}`);
   } finally {
     // Siempre limpiar datos sensibles del mensaje, incluso si hubo error
     cleanupSensitiveMessageData(message);
