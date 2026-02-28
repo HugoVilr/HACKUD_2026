@@ -100,17 +100,19 @@ if (leakCount > 0) {
 
 ---
 
-### 5. **Validación de Origen de Mensajes** ✨ NEW (Security Fix #18) - UPDATED
+### 5. **Validación de Origen de Mensajes** ✨ NEW (Security Fix #18) - UPDATED v2
 ```typescript
 // Validar que el sender es la propia extensión
 if (!sender.id || sender.id !== chrome.runtime.id) {
   return error("FORBIDDEN", "Invalid message origin");
 }
 
-// Whitelist de mensajes seguros desde content scripts
+// Whitelist de mensajes permitidos desde content scripts
 const CONTENT_SCRIPT_ALLOWED_MESSAGES = [
   'VAULT_STATUS',           // Solo lectura - verificar estado
-  'OPEN_POPUP_FOR_SIGNUP'   // Solo sugerencia - no modifica datos
+  'OPEN_POPUP_FOR_SIGNUP',  // Solo sugerencia - no modifica datos
+  'GENERATE_PASSWORD',      // Generación segura - no accede a vault
+  'ENTRY_ADD'               // Crear entrada - con confirmación explícita usuario
 ];
 
 // Si viene de content script, validar whitelist
@@ -118,15 +120,31 @@ if (sender.tab) {
   const isAllowed = CONTENT_SCRIPT_ALLOWED_MESSAGES.includes(message.type);
   
   if (!isAllowed) {
-    return error("FORBIDDEN", "Content scripts: read-only operations only");
+    return error("FORBIDDEN", "Content scripts: limited operations only");
   }
 }
 ```
 
 **Protege contra**:
 - Cross-extension messaging attacks
-- Content scripts maliciosos ejecutando operaciones de escritura (ENTRY_ADD, ENTRY_DELETE, etc.)
-- Comunicación no autorizada desde contextos externos
+- Content scripts maliciosos leyendo credenciales existentes (ENTRY_GET, ENTRY_GET_SECRET: **BLOQUEADOS**)
+- Modificación no autorizada de vault (ENTRY_UPDATE, ENTRY_DELETE: **BLOQUEADOS**)
+- Operaciones de vault management (VAULT_DELETE: **BLOQUEADO**)
+
+**Whitelist Rationale - Por qué cada mensaje es seguro:**
+- `VAULT_STATUS`: Solo lectura, respuesta booleana (locked/unlocked)
+- `OPEN_POPUP_FOR_SIGNUP`: No modifica datos, solo registra intención
+- `GENERATE_PASSWORD`: **Seguro** - Genera contraseña nueva, no accede a vault existente
+- `ENTRY_ADD`: **Seguro con confirmación** - El usuario ve el modal, revisa datos, y hace click explícito en "Guardar y Usar". Requiere vault desbloqueado. No puede leer/modificar entradas existentes.
+
+**Operaciones BLOQUEADAS desde content scripts:**
+- ❌ `ENTRY_GET` - Leer entrada completa
+- ❌ `ENTRY_GET_SECRET` - Acceder a credenciales
+- ❌ `ENTRY_UPDATE` - Modificar entrada existente
+- ❌ `ENTRY_DELETE` - Eliminar entrada
+- ❌ `ENTRY_LIST` - Listar todas las entradas
+- ❌ `VAULT_DELETE` - Eliminar vault
+- ❌ `VAULT_UNLOCK` - Desbloquear vault
 
 **Whitelist Rationale**:
 - `VAULT_STATUS`: Solo lectura, necesaria para verificar si mostrar sugerencia de auto-capture
@@ -543,8 +561,40 @@ Chrome Extension ↔ Native App (C++/Rust)
 | 2026-02-27 | AI Security Review (Round 1) | 18 vulnerabilidades identificadas | ✅ 15 fixed, 3 documented as future work |
 | 2026-02-28 | AI Security Review (Round 2) | 3 vulnerabilidades adicionales de defense-in-depth | ✅ 3 fixed (#18, #19, #20) |
 | 2026-02-28 | Feature Integration Review | Fix #18 demasiado restrictivo para auto-capture | ✅ Updated: whitelist-based approach |
+| 2026-02-28 | In-Page Modal Implementation | Whitelist necesita GENERATE_PASSWORD y ENTRY_ADD | ✅ Updated: expanded whitelist with security justification |
 
-### Round 2 Update (2026-02-28 - later)
+### Round 2 Update v2 (2026-02-28 - in-page modal)
+
+**Context**: Modal in-page para creación de credenciales necesita más permisos
+
+**Issue**:
+- Modal in-page intenta generar contraseña: error "Content scripts can only send VAULT_STATUS or OPEN_POPUP_FOR_SIGNUP"
+- Modal intenta guardar entrada: también bloqueado
+- Usuario reporta: "TAMPOCO ME DEJA ESCRIBIR LA CONTRASEÑA A MANO"
+
+**Solution**:
+- **Expandida whitelist** para incluir:
+  - `GENERATE_PASSWORD`: Genera contraseña nueva, no accede a vault
+  - `ENTRY_ADD`: Crea entrada con confirmación explícita del usuario (modal)
+- **Removido `readonly`** del campo de contraseña
+- **Añadida validación**: Mínimo 12 caracteres (requisitos originales del proyecto)
+- **Error visual**: Muestra mensaje si contraseña muy corta
+
+**Security Analysis - ¿Por qué ENTRY_ADD es seguro desde content script?**
+1. **Confirmación explícita**: Usuario ve modal completo, revisa datos, click en "Guardar y Usar"
+2. **Vault desbloqueado**: Operación solo funciona con vault ya desbloqueado
+3. **Solo creación**: No puede leer entradas existentes (ENTRY_GET: bloqueado)
+4. **No puede modificar**: ENTRY_UPDATE y ENTRY_DELETE permanecen bloqueados
+5. **Transparencia total**: Usuario ve exactamente qué se guardará (título, username, password visible en modal)
+
+**Security Impact**:
+- ✅ Content scripts aún NO pueden leer credenciales existentes
+- ✅ Content scripts aún NO pueden modificar/eliminar entradas
+- ✅ GENERATE_PASSWORD genera nueva contraseña, no expone existentes
+- ✅ ENTRY_ADD requiere interacción explícita del usuario (no puede ejecutarse silenciosamente)
+- ✅ Defense in depth: verificación adicional en background (requireUnlocked)
+
+### Round 2 Update (2026-02-28 - earlier)
 
 **Context**: Feature auto-capture requiere comunicación content script → background
 

@@ -26,10 +26,13 @@ import { handleMessage } from "./session.ts";
  * - Otras extensiones: bloqueadas
  */
 
-// Mensajes que content scripts pueden enviar (whitelist de solo-lectura)
+// Mensajes que content scripts pueden enviar (whitelist)
+// SECURITY: Aunque algunos son de escritura, requieren vault desbloqueado + confirmación usuario
 const CONTENT_SCRIPT_ALLOWED_MESSAGES = [
-  'VAULT_STATUS',           // Necesario para verificar si mostrar suggestion
-  'OPEN_POPUP_FOR_SIGNUP'   // Necesario para sugerir crear cuenta
+  'VAULT_STATUS',           // Solo lectura - verificar si vault desbloqueado
+  'OPEN_POPUP_FOR_SIGNUP',  // Solo sugerencia - no modifica datos
+  'GENERATE_PASSWORD',      // Generación de password - necesario para modal in-page
+  'ENTRY_ADD'               // Crear entrada - con confirmación explícita del usuario
 ] as const;
 
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {

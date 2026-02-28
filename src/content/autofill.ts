@@ -543,14 +543,13 @@ function showCreateEntryModal(form: HTMLFormElement): void {
               type="text" 
               class="g8keeper-form-input" 
               id="g8keeper-input-password"
-              placeholder="Click en Generar para crear contraseña segura"
-              readonly
+              placeholder="Genera o escribe una contraseña segura (mín. 12 caracteres)"
             />
             <button class="g8keeper-btn-generate" id="g8keeper-btn-generate">
               🎲 Generar
             </button>
           </div>
-          <div class="g8keeper-hint">Se generará una contraseña de 20 caracteres</div>
+          <div class="g8keeper-hint">Mínimo 12 caracteres. Click en Generar para 20 caracteres aleatorios</div>
         </div>
         
         <div id="g8keeper-modal-error" class="g8keeper-error" style="display: none;"></div>
@@ -589,9 +588,18 @@ function showCreateEntryModal(form: HTMLFormElement): void {
   const validateForm = () => {
     const hasTitle = titleInput.value.trim().length > 0;
     const hasUsername = usernameInput.value.trim().length > 0;
-    const hasPassword = passwordInput.value.length > 0;
+    const password = passwordInput.value;
+    const hasValidPassword = password.length >= 12; // Mínimo 12 caracteres
     
-    saveBtn.disabled = !(hasTitle && hasUsername && hasPassword);
+    // Mostrar error si hay contraseña pero es muy corta
+    if (password.length > 0 && password.length < 12) {
+      errorDiv.textContent = 'La contraseña debe tener al menos 12 caracteres';
+      errorDiv.style.display = 'block';
+    } else {
+      errorDiv.style.display = 'none';
+    }
+    
+    saveBtn.disabled = !(hasTitle && hasUsername && hasValidPassword);
   };
   
   // Event listeners
