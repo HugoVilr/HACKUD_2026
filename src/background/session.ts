@@ -8,7 +8,7 @@ import {
   type MessageResponseMap,
   type VaultStatusData
 } from "../shared/messages.ts";
-import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault } from "../core/vault/storage.ts";
+import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault, deleteEncryptedVault } from "../core/vault/storage.ts";
 import { createEncryptedVault, reencryptVault, unlockEncryptedVault } from "../core/vault/crypto.ts";
 import { deleteEntry, entryPublicView, getEntrySecret, listPublicEntries, upsertEntry } from "../core/vault/entries.ts";
 import type { EncryptedVault, VaultPlaintext } from "../core/vault/types.ts";
@@ -365,6 +365,38 @@ export async function handleMessage(
       case MESSAGE_TYPES.VAULT_LOCK: {
         lockNow();
         return ok(await getVaultStatus());
+      }
+
+      case MESSAGE_TYPES.VAULT_DELETE: {
+        const master = String(message.payload.masterPassword ?? "");
+        const confirmText = String(message.payload.confirmText ?? "").trim().toLowerCase();
+
+        if (!master) {
+          return err("VALIDATION_ERROR", "Master password requerida");
+        }
+
+        if (confirmText !== "eliminar") {
+          return err("VALIDATION_ERROR", "Debes escribir 'eliminar' para confirmar");
+        }
+
+        // Verificar que la master password sea correcta
+        const enc = await loadEncryptedVault();
+        if (!enc) {
+          return err("NO_VAULT", "No hay vault guardado");
+        }
+
+        try {
+          // Intentar desbloquear para verificar la master password
+          await unlockEncryptedVault(enc, master);
+        } catch {
+          return err("BAD_MASTER", "Master password incorrecta");
+        }
+
+        // Master password correcta, eliminar el vault
+        await deleteEncryptedVault();
+        lockNow();
+
+        return ok({ deleted: true });
       }
 
       case MESSAGE_TYPES.ENTRY_LIST: {
