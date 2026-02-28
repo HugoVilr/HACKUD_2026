@@ -309,6 +309,7 @@ const renderList = () => {
         <h1>Vault entries</h1>
         <div class="toolbar-actions">
           <button type="button" data-action="to-add" class="primary">+ Add</button>
+          <button type="button" data-action="run-hibp-audit">Leak audit</button>
           <button type="button" data-action="lock">Lock</button>
           <button type="button" data-action="show-delete" class="caution-button">Eliminar Vault</button>
         </div>
@@ -774,6 +775,29 @@ root.addEventListener("click", async (event) => {
       setToast("Vault bloqueado.", "info");
     } catch (_error) {
       setToast("No se pudo bloquear el vault.", "error");
+    }
+    return;
+  }
+
+  if (action === "run-hibp-audit") {
+    try {
+      const res = await sendApiMessage("HIBP_AUDIT_START");
+      if (!res.ok) {
+        setToast(res.error?.message || "No se pudo iniciar la auditoria HIBP.", "error");
+        return;
+      }
+
+      const auditId = String(res.data?.auditId ?? "").trim();
+      if (!auditId) {
+        setToast("No se pudo crear el reporte de auditoria.", "error");
+        return;
+      }
+
+      const url = chrome.runtime.getURL(`src/report/report.html?audit=${encodeURIComponent(auditId)}`);
+      await chrome.tabs.create({ url });
+      setToast("Auditoria iniciada. Reporte abierto en una nueva pestana.", "info");
+    } catch (_error) {
+      setToast("No se pudo iniciar la auditoria HIBP.", "error");
     }
     return;
   }

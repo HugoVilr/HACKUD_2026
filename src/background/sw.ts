@@ -19,6 +19,8 @@ const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
   MESSAGE_TYPES.OPEN_POPUP_FOR_SIGNUP,
   MESSAGE_TYPES.GENERATE_PASSWORD,
   MESSAGE_TYPES.ENTRY_ADD,
+  MESSAGE_TYPES.HIBP_AUDIT_STATUS,
+  MESSAGE_TYPES.HIBP_AUDIT_RESULT,
 ]);
 
 async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
@@ -56,9 +58,34 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     return true;
   }
 
-  if (sender.tab) {
+  const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+  const senderUrl = String(sender.url ?? "");
+  const senderTabUrl = String((sender.tab as { url?: string } | undefined)?.url ?? "");
+  const senderOrigin = String(
+    // origin/documentOrigin no siempre están tipados en @types/chrome según versión.
+    (sender as { origin?: string; documentOrigin?: string }).origin ??
+      (sender as { origin?: string; documentOrigin?: string }).documentOrigin ??
+      ""
+  );
+  const isExtensionPage =
+    senderUrl.startsWith(extensionOrigin) ||
+    senderOrigin.startsWith(extensionOrigin) ||
+    senderTabUrl.startsWith(extensionOrigin);
+  const isWebContentScript = Boolean(sender.tab) && !isExtensionPage;
+
+  // Solo aplicar allowlist estricta a content scripts inyectados en páginas web.
+  // Las páginas internas de la extensión (popup/report/options), aunque tengan sender.tab,
+  // deben tener acceso completo como trusted UI.
+  if (isWebContentScript) {
     const type = message?.type;
     if (!type || !CONTENT_SCRIPT_ALLOWED_TYPES.has(type)) {
+      console.warn("[G8keeper] Blocked content-script message", {
+        type,
+        senderUrl,
+        senderTabUrl,
+        senderOrigin,
+        hasTab: Boolean(sender.tab),
+      });
       sendResponse({
         ok: false,
         error: {

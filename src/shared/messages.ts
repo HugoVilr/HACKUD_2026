@@ -21,6 +21,9 @@ export const MESSAGE_TYPES = {
    * (and uses `host_permissions`).
    */
   HIBP_CHECK: "HIBP_CHECK",
+  HIBP_AUDIT_START: "HIBP_AUDIT_START",
+  HIBP_AUDIT_STATUS: "HIBP_AUDIT_STATUS",
+  HIBP_AUDIT_RESULT: "HIBP_AUDIT_RESULT",
   /**
    * AUTO-CAPTURE: Abrir popup para crear cuenta desde vault
    * Usado por content script cuando detecta formulario de signup
@@ -107,6 +110,33 @@ export interface HibpCheckPayload {
   password: string;
 }
 
+export interface HibpAuditQueryPayload {
+  auditId: string;
+}
+
+export type HibpAuditState = "running" | "done" | "failed" | "aborted";
+
+export interface HibpAuditSummary {
+  auditId: string;
+  state: HibpAuditState;
+  startedAt: number;
+  finishedAt?: number;
+  total: number;
+  processed: number;
+  compromised: number;
+  safe: number;
+  errors: number;
+}
+
+export interface HibpAuditItem {
+  entryId: string;
+  title: string;
+  count: number | null;
+  compromised: boolean;
+  status: "ok" | "error";
+  error?: string;
+}
+
 export interface GeneratePasswordPayload {
   config: {
     length: number;
@@ -165,6 +195,9 @@ export interface MessagePayloadMap {
   UI_OPEN_POPUP: UiOpenPopupPayload | undefined;
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
+  HIBP_AUDIT_START: undefined;
+  HIBP_AUDIT_STATUS: HibpAuditQueryPayload;
+  HIBP_AUDIT_RESULT: HibpAuditQueryPayload;
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
   AUTOFILL_CREDENTIALS: AutofillCredentialsPayload;
   REQUEST_AUTOFILL: RequestAutofillPayload;
@@ -193,6 +226,9 @@ export interface MessageResponseMap {
   UI_OPEN_POPUP: ApiResult<{ opened: boolean }>;
   GENERATE_PASSWORD: ApiResult<{ password: string }>;
   HIBP_CHECK: ApiResult<{ count: number }>;
+  HIBP_AUDIT_START: ApiResult<{ auditId: string; total: number; startedAt: number }>;
+  HIBP_AUDIT_STATUS: ApiResult<{ audit: HibpAuditSummary }>;
+  HIBP_AUDIT_RESULT: ApiResult<{ audit: HibpAuditSummary; items: HibpAuditItem[] }>;
   OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;
   AUTOFILL_CREDENTIALS: ApiResult<{ filled: boolean }>;
   REQUEST_AUTOFILL: ApiResult<{ sent: boolean }>;

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>G8keeper - HIBP Audit</title>
+    <link rel="stylesheet" href="./report.css" />
+  </head>
+  <body>
+    <main class="report">
+      <header class="report__header">
+        <h1>HIBP Leak Audit</h1>
+        <p id="audit-meta" class="muted">Cargando auditoría...</p>
+      </header>
+
+      <section class="summary">
+        <article class="summary-card">
+          <span class="summary-card__label">Estado</span>
+          <strong id="audit-state" class="summary-card__value">-</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-card__label">Progreso</span>
+          <strong id="audit-progress" class="summary-card__value">0 / 0</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-card__label">Comprometidas</span>
+          <strong id="audit-compromised" class="summary-card__value summary-card__value--danger">0</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-card__label">Seguras</span>
+          <strong id="audit-safe" class="summary-card__value">0</strong>
+        </article>
+      </section>
+
+      <section class="progress-wrap" aria-label="Progress">
+        <div class="progress-track">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+      </section>
+
+      <section class="actions">
+        <button id="refresh-btn" type="button">Actualizar</button>
+      </section>
+
+      <details class="debug">
+        <summary>Debug</summary>
+        <pre id="debug-log">Inicializando...</pre>
+      </details>
+
+      <section class="table-wrap">
+        <table class="audit-table">
+          <thead>
+            <tr>
+              <th>Título</th>
+              <th>Resultado</th>
+              <th>Count</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody id="audit-rows">
+            <tr>
+              <td colspan="4" class="muted">Esperando datos...</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="./report.js" type="module"></script>
+  </body>
+  </html>

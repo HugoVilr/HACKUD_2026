@@ -5,6 +5,8 @@ import {
   type AnyRequestMessage,
   type AutofillCandidate,
   type ApiResult,
+  type HibpAuditItem,
+  type HibpAuditSummary,
   type MessageType,
   type MessageResponseMap,
   type VaultStatusData
@@ -61,6 +63,168 @@ const session: Session = {
   encrypted: null,
   autoLockMs: 5 * 60 * 1000,
   timer: null,
+};
+
+type HibpAuditRecord = {
+  audit: HibpAuditSummary;
+  items: HibpAuditItem[];
+  entryRefs: Array<{ entryId: string; title: string }>;
+};
+
+const HIBP_AUDIT_PREFIX = "g8keeper_hibp_audit_";
+const HIBP_AUDIT_ACTIVE_KEY = "g8keeper_hibp_audit_active";
+const hibpAuditStepLocks = new Set<string>();
+
+const auditStorageKey = (auditId: string) => `${HIBP_AUDIT_PREFIX}${auditId}`;
+
+const createAuditId = () => {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const sleep = async (ms: number) => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const loadAuditRecord = async (auditId: string): Promise<HibpAuditRecord | null> => {
+  const key = auditStorageKey(auditId);
+  const data = await chrome.storage.session.get(key);
+  const record = data?.[key];
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+  return record as HibpAuditRecord;
+};
+
+const saveAuditRecord = async (record: HibpAuditRecord): Promise<void> => {
+  const key = auditStorageKey(record.audit.auditId);
+  await chrome.storage.session.set({
+    [key]: record,
+    [HIBP_AUDIT_ACTIVE_KEY]: record.audit.auditId,
+  });
+};
+
+const hibpCheckWithRetry = async (password: string): Promise<number> => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await hibpCheck(password);
+    } catch (error) {
+      lastError = error;
+      const message = String((error as Error)?.message ?? error);
+      const transient = message.includes("HIBP_RATE_LIMITED") || message.includes("HIBP_TIMEOUT");
+      if (!transient || attempt === 2) {
+        throw error;
+      }
+      await sleep((attempt + 1) * 1200);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("HIBP_CHECK_FAILED");
+};
+
+const nextAuditTarget = (record: HibpAuditRecord) => {
+  const seen = new Set(record.items.map((item) => item.entryId));
+  for (const ref of record.entryRefs) {
+    if (!seen.has(ref.entryId)) {
+      return ref;
+    }
+  }
+  return null;
+};
+
+const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAuditRecord> => {
+  if (record.audit.state !== "running") {
+    return record;
+  }
+
+  const auditId = record.audit.auditId;
+  if (hibpAuditStepLocks.has(auditId)) {
+    return record;
+  }
+  hibpAuditStepLocks.add(auditId);
+
+  try {
+    if (!session.unlocked || !session.plaintext || !session.key || !session.encrypted) {
+      record.audit.state = "aborted";
+      record.audit.finishedAt = Date.now();
+      await saveAuditRecord(record);
+      return record;
+    }
+
+    const target = nextAuditTarget(record);
+    if (!target) {
+      record.audit.state = "done";
+      record.audit.finishedAt = Date.now();
+      await saveAuditRecord(record);
+      return record;
+    }
+
+    const sourceEntry = session.plaintext.entries.find((entry) => entry.id === target.entryId);
+    let count: number | null = null;
+    let errorMessage: string | undefined;
+
+    try {
+      const password = String(sourceEntry?.password ?? "");
+      if (!password) {
+        throw new Error("Password vacia o entry no encontrada");
+      }
+      count = await hibpCheckWithRetry(password);
+    } catch (error) {
+      errorMessage = String((error as Error)?.message ?? error);
+    }
+
+    const compromised = Number(count) > 0;
+    const status: HibpAuditItem["status"] = errorMessage ? "error" : "ok";
+
+    record.items.push({
+      entryId: target.entryId,
+      title: target.title,
+      count: count ?? null,
+      compromised: status === "ok" ? compromised : false,
+      status,
+      error: errorMessage,
+    });
+
+    record.audit.processed += 1;
+    if (status === "error") {
+      record.audit.errors += 1;
+    } else if (compromised) {
+      record.audit.compromised += 1;
+    } else {
+      record.audit.safe += 1;
+    }
+
+    if (record.audit.processed >= record.audit.total) {
+      record.audit.state = "done";
+      record.audit.finishedAt = Date.now();
+    }
+
+    await saveAuditRecord(record);
+    console.info("[G8keeper][HIBP_AUDIT] step", {
+      auditId,
+      processed: record.audit.processed,
+      total: record.audit.total,
+      state: record.audit.state,
+    });
+    return record;
+  } catch (error) {
+    const message = String((error as Error)?.message ?? error);
+    record.audit.state = "failed";
+    record.audit.finishedAt = Date.now();
+    record.audit.errors += 1;
+    record.items.push({
+      entryId: "internal",
+      title: "audit-runtime",
+      count: null,
+      compromised: false,
+      status: "error",
+      error: message,
+    });
+    await saveAuditRecord(record);
+    console.error("[G8keeper][HIBP_AUDIT] failed", { auditId, message });
+    return record;
+  } finally {
+    hibpAuditStepLocks.delete(auditId);
+  }
 };
 
 /**
@@ -655,6 +819,74 @@ export async function handleMessage(
         } catch {
           return err("INTERNAL", "Error consultando HIBP");
         }
+      }
+
+      case MESSAGE_TYPES.HIBP_AUDIT_START: {
+        requireUnlocked();
+        touch();
+
+        const entryRefs = session.plaintext!.entries.map((entry) => ({
+          entryId: entry.id,
+          title: String(entry.title || "(sin titulo)"),
+        }));
+
+        if (entryRefs.length === 0) {
+          return err("EMPTY_VAULT", "No hay credenciales para auditar.");
+        }
+
+        const auditId = createAuditId();
+        const startedAt = Date.now();
+
+        const record: HibpAuditRecord = {
+          audit: {
+            auditId,
+            state: "running",
+            startedAt,
+            total: entryRefs.length,
+            processed: 0,
+            compromised: 0,
+            safe: 0,
+            errors: 0,
+          },
+          items: [],
+          entryRefs,
+        };
+
+        await saveAuditRecord(record);
+        console.info("[G8keeper][HIBP_AUDIT] started", { auditId, total: entryRefs.length });
+        return ok({ auditId, total: entryRefs.length, startedAt });
+      }
+
+      case MESSAGE_TYPES.HIBP_AUDIT_STATUS: {
+        const auditId = String(message.payload.auditId ?? "").trim();
+        if (!auditId) {
+          return err("VALIDATION", "auditId requerido");
+        }
+
+        let record = await loadAuditRecord(auditId);
+        if (!record) {
+          return err("NOT_FOUND", "Auditoría no encontrada");
+        }
+
+        if (record.audit.state === "running") {
+          record = await advanceHibpAuditOneStep(record);
+        }
+
+        return ok({ audit: record.audit });
+      }
+
+      case MESSAGE_TYPES.HIBP_AUDIT_RESULT: {
+        const auditId = String(message.payload.auditId ?? "").trim();
+        if (!auditId) {
+          return err("VALIDATION", "auditId requerido");
+        }
+
+        const record = await loadAuditRecord(auditId);
+        if (!record) {
+          return err("NOT_FOUND", "Auditoría no encontrada");
+        }
+
+        return ok({ audit: record.audit, items: record.items });
       }
 
       case MESSAGE_TYPES.OPEN_POPUP_FOR_SIGNUP: {
