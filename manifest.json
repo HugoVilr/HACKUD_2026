@@ -12,7 +12,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content/credential-assistant.js"],
+      "js": ["src/content/autofill.js", "src/content/credential-assistant.js"],
+      "css": ["src/content/autofill.css"],
       "run_at": "document_idle",
       "all_frames": false
     }

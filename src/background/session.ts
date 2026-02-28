@@ -3,6 +3,7 @@ import { hibpCheck } from "../core/hibp/hibp.ts";
 import {
   MESSAGE_TYPES,
   type AnyRequestMessage,
+  type AutofillCandidate,
   type ApiResult,
   type MessageType,
   type MessageResponseMap,
@@ -82,6 +83,7 @@ const OPERATIONS_THAT_EXTEND_SESSION = new Set([
   MESSAGE_TYPES.ENTRY_LIST,
   MESSAGE_TYPES.ENTRY_GET,
   MESSAGE_TYPES.ENTRY_GET_SECRET,
+  MESSAGE_TYPES.AUTOFILL_QUERY_BY_DOMAIN,
   MESSAGE_TYPES.ENTRY_ADD,
   MESSAGE_TYPES.ENTRY_UPDATE,
   MESSAGE_TYPES.ENTRY_DELETE,
@@ -199,6 +201,77 @@ async function getVaultStatus(): Promise<VaultStatusData> {
   const vaultName = session.unlocked ? session.plaintext?.profile?.vaultName : undefined;
   const entryCount = session.unlocked ? session.plaintext?.entries.length ?? 0 : 0;
   return { hasVault, locked, vaultName, entryCount };
+}
+
+function normalizeHostname(raw: string): string {
+  const host = String(raw ?? "").trim().toLowerCase();
+  if (!host) return "";
+  const noPort = host.split(":")[0] ?? "";
+  return noPort.replace(/\.+$/, "");
+}
+
+function normalizeEntryDomain(raw: string | undefined): string {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return "";
+  try {
+    if (value.includes("://")) return normalizeHostname(new URL(value).hostname);
+  } catch {
+    // Ignore invalid URL shapes and fallback to plain normalization.
+  }
+  return normalizeHostname(value.replace(/^https?:\/\//, "").split("/")[0] ?? "");
+}
+
+function baseHostname(hostname: string): string {
+  return hostname.replace(/^www\./, "");
+}
+
+function getAutofillCandidatesByHostname(hostname: string): AutofillCandidate[] {
+  const host = normalizeHostname(hostname);
+  if (!host) return [];
+
+  const hostBase = baseHostname(host);
+  const entries = listPublicEntries(session.plaintext!);
+  const out: AutofillCandidate[] = [];
+
+  for (const entry of entries) {
+    const domain = normalizeEntryDomain(entry.domain);
+    const title = String(entry.title ?? "");
+    const titleLc = title.toLowerCase();
+    const domainBase = baseHostname(domain);
+
+    let matchType: AutofillCandidate["matchType"] | null = null;
+
+    if (domain && (domain === host || domainBase === hostBase)) {
+      matchType = "exact";
+    } else if (domain && (host.endsWith(`.${domain}`) || hostBase.endsWith(`.${domainBase}`))) {
+      matchType = "suffix";
+    } else if (hostBase && titleLc.includes(hostBase)) {
+      matchType = "title";
+    }
+
+    if (!matchType) continue;
+    out.push({
+      id: entry.id,
+      title: title || "(sin titulo)",
+      username: entry.username,
+      domain: entry.domain,
+      matchType,
+    });
+  }
+
+  const score = (match: AutofillCandidate["matchType"]): number => {
+    if (match === "exact") return 0;
+    if (match === "suffix") return 1;
+    return 2;
+  };
+
+  return out
+    .sort((a, b) => {
+      const delta = score(a.matchType) - score(b.matchType);
+      if (delta !== 0) return delta;
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, 8);
 }
 
 /**
@@ -558,6 +631,15 @@ export async function handleMessage(
         return ok({ secret: sec });
       }
 
+      case MESSAGE_TYPES.AUTOFILL_QUERY_BY_DOMAIN: {
+        requireUnlocked();
+        touch();
+        const hostname = normalizeHostname(message.payload.hostname);
+        if (!hostname) return err("VALIDATION", "Hostname requerido");
+        const entries = getAutofillCandidatesByHostname(hostname);
+        return ok({ entries });
+      }
+
       case MESSAGE_TYPES.GENERATE_PASSWORD: {
         const cfg = message.payload?.config ?? { length: 16 };
         const pwd = generatePassword(cfg);
@@ -589,7 +671,7 @@ export async function handleMessage(
         // Popup solicita autofill en la pestaña activa
         requireUnlocked();
         
-        const { username, password } = payload as { username: string; password: string };
+        const { username, password } = message.payload as { username: string; password: string };
         
         // Obtener la pestaña activa actual
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

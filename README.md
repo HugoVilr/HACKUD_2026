@@ -8,7 +8,7 @@ Proyecto desarrollado para **HackUDC 2026** - Reto: "Seeking the Perfect Key" - 
 ## TODOS:
 - [ ] IMPORTANTE Hacer revisión de contraseñas si han sido leakeadas con 
 - [ ] Eliminar contraseñas individuales
-- [ ] Autocompletar
+- [x] Autocompletar
 - [ ] Guardar contraseñas que acabas de crear
 - [x] Guardar contraseñas automático recomendado
 - [ ] Historial de contraseñas
@@ -24,6 +24,7 @@ Proyecto desarrollado para **HackUDC 2026** - Reto: "Seeking the Perfect Key" - 
 - ✅ **Rate limiting** en unlock (protección contra brute force local)
 - ✅ **Master password validation** (complejidad y longitud)
 - ✅ **Seguridad por diseño** (validación de origen, CSP, limpieza de memoria)
+- ✅ **Autofill web** (candado + sugerencias por dominio + rellenado)
 
 ---
 
@@ -61,6 +62,7 @@ Proyecto desarrollado para **HackUDC 2026** - Reto: "Seeking the Perfect Key" - 
 
 Ver **[SECURITY.md](SECURITY.md)** para documentación completa de seguridad.
 Ver `docs/hibp.md` para detalles de la integración HIBP (k-anonymity).
+Ver `docs/autofill.md` para detalles del autocompletado en páginas web.
 
 **Highlights**:
 - **Encryption**: AES-256-GCM con PBKDF2-SHA256 (600,000 iterations)

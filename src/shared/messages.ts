@@ -12,6 +12,8 @@ export const MESSAGE_TYPES = {
   ENTRY_UPDATE: "ENTRY_UPDATE",
   ENTRY_DELETE: "ENTRY_DELETE",
   ENTRY_GET_SECRET: "ENTRY_GET_SECRET",
+  AUTOFILL_QUERY_BY_DOMAIN: "AUTOFILL_QUERY_BY_DOMAIN",
+  UI_OPEN_POPUP: "UI_OPEN_POPUP",
   GENERATE_PASSWORD: "GENERATE_PASSWORD",
   /**
    * HIBP Pwned Passwords (k-anonymity) check.
@@ -33,7 +35,7 @@ export const MESSAGE_TYPES = {
    * AUTO-CAPTURE: Solicitar autofill en pestaña activa
    * Enviado desde popup a background después de crear entrada
    */
-  REQUEST_AUTOFILL: "REQUEST_AUTOFILL"
+  REQUEST_AUTOFILL: "REQUEST_AUTOFILL",
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
@@ -82,6 +84,7 @@ export interface EntryGetSecretPayload {
 
 export interface EntryCreateInput {
   title: string;
+  domain?: string;
   username?: string;
   password: string;
   notes?: string;
@@ -115,6 +118,18 @@ export interface GeneratePasswordPayload {
   };
 }
 
+export interface AutofillQueryByDomainPayload {
+  hostname: string;
+}
+
+export interface AutofillCandidate {
+  id: string;
+  title: string;
+  username?: string;
+  domain?: string;
+  matchType: "exact" | "suffix" | "title";
+}
+
 export interface OpenPopupForSignupPayload {
   url: string;
   title: string;
@@ -142,6 +157,8 @@ export interface MessagePayloadMap {
   ENTRY_ADD: EntryAddPayload;
   ENTRY_UPDATE: EntryUpdatePayload;
   ENTRY_DELETE: EntryDeletePayload;
+  AUTOFILL_QUERY_BY_DOMAIN: AutofillQueryByDomainPayload;
+  UI_OPEN_POPUP: undefined;
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
@@ -168,6 +185,8 @@ export interface MessageResponseMap {
   ENTRY_ADD: ApiResult<{ entry: VaultEntry }>;
   ENTRY_UPDATE: ApiResult<{ entry: VaultEntry }>;
   ENTRY_DELETE: ApiResult<{ id: string }>;
+  AUTOFILL_QUERY_BY_DOMAIN: ApiResult<{ entries: AutofillCandidate[] }>;
+  UI_OPEN_POPUP: ApiResult<{ opened: boolean }>;
   GENERATE_PASSWORD: ApiResult<{ password: string }>;
   HIBP_CHECK: ApiResult<{ count: number }>;
   OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;

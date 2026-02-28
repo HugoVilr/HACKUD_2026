@@ -65,7 +65,15 @@ test("integration: vault create/unlock/entries/lock via background messages", as
 
     const add = await handleMessage({
       type: MESSAGE_TYPES.ENTRY_ADD,
-      payload: { entry: { title: "Github", username: "demo", password: "p@ss", notes: "n" } }
+      payload: {
+        entry: {
+          title: "Github",
+          domain: "github.com",
+          username: "demo",
+          password: "p@ss",
+          notes: "n"
+        }
+      }
     });
     assert.equal(add.ok, true);
     assert.ok(add.data.entry.id);
@@ -87,6 +95,16 @@ test("integration: vault create/unlock/entries/lock via background messages", as
     assert.equal(get1.ok, true);
     assert.equal(get1.data.entry?.id, entryId);
     assert.ok(!("password" in (get1.data.entry ?? {})));
+
+    const autofill = await handleMessage({
+      type: MESSAGE_TYPES.AUTOFILL_QUERY_BY_DOMAIN,
+      payload: { hostname: "github.com" }
+    });
+    assert.equal(autofill.ok, true);
+    assert.equal(autofill.data.entries.length, 1);
+    assert.equal(autofill.data.entries[0]?.id, entryId);
+    assert.equal(autofill.data.entries[0]?.matchType, "exact");
+    assert.ok(!("password" in (autofill.data.entries[0] ?? {})));
 
     const secret1 = await handleMessage({
       type: MESSAGE_TYPES.ENTRY_GET_SECRET,
@@ -134,4 +152,3 @@ test("integration: vault create/unlock/entries/lock via background messages", as
     (globalThis as any).chrome = prevChrome;
   }
 });
-
