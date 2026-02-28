@@ -52,19 +52,22 @@ body::before {
 }
 
 .popup--unlocked {
-  height: 620px;
+  height: 600px;
   max-height: 620px;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);  align-items: stretch;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
-.popup--unlocked .card {
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.popup--unlocked .entry-list {
-  max-height: none;
-  overflow: visible;
+.popup--unlocked .card--entries {
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 .topline {
@@ -201,6 +204,42 @@ button.primary:hover {
   background: rgba(154, 248, 157, 0.28);
 }
 
+.caution-button {
+  background: linear-gradient(180deg, rgba(154, 248, 157, 0.1) 0%, rgba(111, 42, 42, 0.38) 100%);
+  border-color: rgba(255, 127, 127, 0.42);
+  color: #ffd5c9;
+  box-shadow: inset 0 0 0 1px rgba(154, 248, 157, 0.08);
+}
+
+.caution-button:hover {
+  background: linear-gradient(180deg, rgba(154, 248, 157, 0.14) 0%, rgba(111, 42, 42, 0.52) 100%);
+  border-color: rgba(255, 127, 127, 0.6);
+  color: #ffe5de;
+}
+
+.danger-button {
+  border: 1px solid rgba(255, 127, 127, 0.55);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  background: linear-gradient(180deg, rgba(154, 248, 157, 0.12) 0%, rgba(111, 42, 42, 0.72) 100%);
+  color: #ffe3dc;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.danger-button:hover {
+  background: linear-gradient(180deg, rgba(154, 248, 157, 0.16) 0%, rgba(111, 42, 42, 0.86) 100%);
+  border-color: rgba(255, 127, 127, 0.75);
+  color: #fff0eb;
+}
+
+.warning-text {
+  color: #ffb7aa;
+  font-weight: 600;
+}
+
 .stack {
   display: grid;
   gap: 10px;
@@ -264,14 +303,32 @@ textarea:focus {
   gap: 6px;
 }
 
+.entries-screen {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
 .entry-list {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
   display: grid;
   gap: 8px;
+  align-content: start;
   max-height: 210px;
   overflow: auto;
+}
+
+.card--entries .entry-list {
+  max-height: none;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  margin-bottom: 0;
 }
 
 .entry-empty {

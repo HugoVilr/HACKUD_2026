@@ -5,6 +5,13 @@
 Proyecto desarrollado para **HackUDC 2026** - Reto: "Seeking the Perfect Key" - Gradiant
 
 ---
+## TODOS:
+- [ ] Eliminar contraseñas individuales
+- [ ] Autocompletar
+- [ ] Guardar contraseñas que acabas de crear
+- [ ] Guardar contraseñas automático recomendado
+- [ ] Hacer revisión de contraseñas si han sido leakeadas
+
 
 ## 🎯 Características
 
