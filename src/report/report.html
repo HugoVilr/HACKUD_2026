@@ -31,6 +31,14 @@
           <strong id="audit-safe" class="summary-card__value">0</strong>
         </article>
         <article class="summary-card">
+          <span class="summary-card__label">Emails pwned</span>
+          <strong id="audit-email-pwned" class="summary-card__value summary-card__value--danger">0</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-card__label">Emails seguros</span>
+          <strong id="audit-email-safe" class="summary-card__value">0</strong>
+        </article>
+        <article class="summary-card">
           <span class="summary-card__label">Último Audit</span>
           <strong id="schedule-last" class="summary-card__value">-</strong>
         </article>
@@ -50,11 +58,6 @@
         <button id="refresh-btn" type="button">Actualizar</button>
       </section>
 
-      <details class="debug">
-        <summary>Debug</summary>
-        <pre id="debug-log">Inicializando...</pre>
-      </details>
-
       <section class="table-wrap">
         <table class="audit-table">
           <thead>
@@ -65,12 +68,15 @@
               <th>Dominio</th>
               <th>Estado dominio</th>
               <th>Brechas dominio</th>
+              <th>Email</th>
+              <th>Estado email</th>
+              <th>Brechas email</th>
               <th>Error</th>
             </tr>
           </thead>
           <tbody id="audit-rows">
             <tr>
-              <td colspan="7" class="muted">Esperando datos...</td>
+              <td colspan="10" class="muted">Esperando datos...</td>
             </tr>
           </tbody>
         </table>
