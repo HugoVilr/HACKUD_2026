@@ -30,8 +30,8 @@ test("manifest declares content script for autofill", () => {
     "manifest should match <all_urls> for content script coverage"
   );
   assert.ok(
-    Array.isArray(autofillEntry.css) && autofillEntry.css.includes("src/content/autofill.css"),
-    "manifest should include src/content/autofill.css in content_scripts"
+    Array.isArray(autofillEntry.css) && autofillEntry.css.includes("src/styles/content-autofill.css"),
+    "manifest should include src/styles/content-autofill.css in content_scripts"
   );
   assert.equal(autofillEntry.run_at, "document_idle");
 });
@@ -50,12 +50,24 @@ test("build script compiles autofill content script", () => {
   assert.ok(buildCmd.includes("--outfile=src/content/autofill.js"), "build script should write autofill.js output");
 });
 
+test("build script compiles HIBP report script", () => {
+  const pkg = loadJson<any>("package.json");
+  const buildCmd = String(pkg?.scripts?.build ?? "");
+  assert.ok(buildCmd.includes("src/report/report.tsx"), "build script should compile report.tsx");
+  assert.ok(buildCmd.includes("--outfile=src/report/report.js"), "build script should write report.js output");
+});
+
 test("autofill source file exists", () => {
   const abs = path.join(repoRoot, "src/content/autofill.ts");
   assert.equal(existsSync(abs), true, "src/content/autofill.ts should exist");
 });
 
 test("autofill style file exists", () => {
-  const abs = path.join(repoRoot, "src/content/autofill.css");
-  assert.equal(existsSync(abs), true, "src/content/autofill.css should exist");
+  const abs = path.join(repoRoot, "src/styles/content-autofill.css");
+  assert.equal(existsSync(abs), true, "src/styles/content-autofill.css should exist");
+});
+
+test("HIBP report source file exists", () => {
+  const abs = path.join(repoRoot, "src/report/report.tsx");
+  assert.equal(existsSync(abs), true, "src/report/report.tsx should exist");
 });

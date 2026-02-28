@@ -534,6 +534,7 @@ const renderEntryDetail = () => {
       <div class="toolbar-actions">
         <button type="button" data-action="to-list">Volver</button>
         <button type="button" data-action="to-edit" class="primary">Editar</button>
+        <button type="button" data-action="delete-entry" class="caution-button">Eliminar</button>
       </div>
     </div>
 
@@ -1103,6 +1104,39 @@ root.addEventListener("click", async (event) => {
     await ensureSelectedSecret();
     state.screen = "FORM_EDIT";
     render();
+    return;
+  }
+
+  if (action === "delete-entry") {
+    const entry = getSelectedEntry();
+    if (!entry) {
+      setToast("No se encontro la entrada.", "error");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE esta credencial.\n\n" +
+      "¿Estás seguro de que quieres continuar?"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const res = await sendApiMessage("ENTRY_DELETE", { id: entry.id });
+      if (!res.ok) {
+        setToast(res.error?.message || "No se pudo eliminar la entry.", "error");
+        return;
+      }
+      state.selectedEntryId = null;
+      state.selectedSecret = null;
+      state.detailPasswordVisible = false;
+      state.screen = "LIST";
+      await refreshEntries();
+      setToast("Entry eliminada.", "success");
+    } catch (_error) {
+      setToast("No se pudo eliminar la entry.", "error");
+    }
     return;
   }
 

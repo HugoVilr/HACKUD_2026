@@ -3,12 +3,12 @@
   --bg-elev: #071007;
   --panel: #0a140a;
   --text: #c3f6c4;
-  --muted: #6d8f6f;
-  --accent: #9af89d;
-  --accent-strong: #cefccd;
-  --border: rgba(154, 248, 157, 0.35);
+  --muted: var(--g8-muted);
+  --accent: var(--g8-accent);
+  --accent-strong: var(--g8-accent-strong);
+  --border: var(--g8-border);
   --danger: #ff7f7f;
-  --font: "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+  --font: var(--g8-font-mono);
 }
 
 * {
@@ -120,8 +120,8 @@ body::before {
 }
 
 .toast.error {
-  background: #6f2a2a;
-  color: #ffc1c1;
+  background: var(--g8-danger-bg);
+  color: var(--g8-danger-text);
   border-color: rgba(255, 127, 127, 0.5);
 }
 
@@ -293,8 +293,8 @@ textarea:focus {
   margin: 0;
   border-radius: 8px;
   border: 1px solid rgba(255, 127, 127, 0.5);
-  background: #6f2a2a;
-  color: #ffc1c1;
+  background: var(--g8-danger-bg);
+  color: var(--g8-danger-text);
   padding: 8px 10px;
   font-size: 12px;
 }
