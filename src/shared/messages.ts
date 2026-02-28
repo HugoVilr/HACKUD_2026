@@ -23,7 +23,12 @@ export const MESSAGE_TYPES = {
    * AUTO-CAPTURE: Abrir popup para crear cuenta desde vault
    * Usado por content script cuando detecta formulario de signup
    */
-  OPEN_POPUP_FOR_SIGNUP: "OPEN_POPUP_FOR_SIGNUP"
+  OPEN_POPUP_FOR_SIGNUP: "OPEN_POPUP_FOR_SIGNUP",
+  /**
+   * AUTO-CAPTURE: Rellenar formulario con credenciales
+   * Enviado desde background a content script después de crear entrada
+   */
+  AUTOFILL_CREDENTIALS: "AUTOFILL_CREDENTIALS"
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
@@ -110,6 +115,11 @@ export interface OpenPopupForSignupPayload {
   title: string;
 }
 
+export interface AutofillCredentialsPayload {
+  username: string;
+  password: string;
+}
+
 export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
@@ -125,6 +135,7 @@ export interface MessagePayloadMap {
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
+  AUTOFILL_CREDENTIALS: AutofillCredentialsPayload;
 }
 
 export interface VaultStatusData {
@@ -149,6 +160,7 @@ export interface MessageResponseMap {
   GENERATE_PASSWORD: ApiResult<{ password: string }>;
   HIBP_CHECK: ApiResult<{ count: number }>;
   OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;
+  AUTOFILL_CREDENTIALS: ApiResult<{ filled: boolean }>;
 }
 
 export type PayloadFor<TType extends MessageType> = MessagePayloadMap[TType];

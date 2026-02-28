@@ -36,31 +36,50 @@ interface DetectedForm {
  * - URL contiene: /signup, /register, /join → signup
  */
 function isSignupForm(form: HTMLFormElement): boolean {
-  // Buscar campo de confirmación de password
+  // Buscar campo de confirmación de password (soporte multiidioma, case-insensitive)
   const confirmPasswordField = form.querySelector<HTMLInputElement>(
-    'input[type="password"][name*="confirm"], input[type="password"][id*="confirm"]'
+    [
+      'input[type="password"][name*="confirm" i]',
+      'input[type="password"][id*="confirm" i]',
+      'input[type="password"][name*="repeat" i]',
+      'input[type="password"][id*="repeat" i]',
+      'input[type="password"][name*="repetir" i]',
+      'input[type="password"][id*="repetir" i]',
+      'input[type="password"][name*="confirmar" i]',
+      'input[type="password"][id*="confirmar" i]',
+      'input[type="password"][placeholder*="confirm" i]',
+      'input[type="password"][placeholder*="repeat" i]',
+      'input[type="password"][placeholder*="repetir" i]',
+      'input[type="password"][aria-label*="confirm" i]',
+      'input[type="password"][aria-label*="repeat" i]',
+      'input[type="password"][aria-label*="repetir" i]',
+    ].join(',')
   );
   if (confirmPasswordField) return true;
 
+  // Si hay más de un campo de password, probablemente sea signup
+  const passwordFields = form.querySelectorAll('input[type="password"]');
+  if (passwordFields.length >= 2) return true;
+
   // Buscar campo de email sin username (común en signups)
   const emailField = form.querySelector<HTMLInputElement>(
-    'input[type="email"], input[name*="email"], input[id*="email"]'
+    'input[type="email"], input[name*="email" i], input[id*="email" i]'
   );
   const usernameField = form.querySelector<HTMLInputElement>(
-    'input[name*="username"], input[id*="username"]'
+    'input[name*="username" i], input[id*="username" i]'
   );
   if (emailField && !usernameField) return true;
 
-  // Analizar texto del botón submit
+  // Analizar texto del botón submit (soporte español)
   const submitButton = form.querySelector<HTMLButtonElement>(
-    'button[type="submit"], input[type="submit"]'
+    'button[type="submit"], input[type="submit"], button:not([type])'
   );
   const buttonText = submitButton?.textContent?.toLowerCase() || submitButton?.value.toLowerCase() || '';
-  if (buttonText.match(/sign\s*up|register|create\s*account|join/)) return true;
+  if (buttonText.match(/sign\s*up|register|create\s*account|join|crear\s*cuenta|registr|unirse/)) return true;
 
-  // Analizar URL
+  // Analizar URL (soporte español)
   const url = window.location.href.toLowerCase();
-  if (url.match(/\/signup|\/register|\/join|\/create-account/)) return true;
+  if (url.match(/\/signup|\/register|\/join|\/create-account|\/crear-cuenta|\/registro/)) return true;
 
   return false;
 }
@@ -80,9 +99,9 @@ function detectForms(): DetectedForm[] {
     
     if (passwordFields.length === 0) continue;
 
-    // Buscar campo de username/email
+    // Buscar campo de username/email (case-insensitive)
     const usernameField = form.querySelector<HTMLInputElement>(
-      'input[type="email"], input[type="text"][name*="user"], input[type="text"][name*="email"], input[id*="user"], input[id*="email"]'
+      'input[type="email"], input[type="text"][name*="user" i], input[type="text"][name*="email" i], input[type="text"][name*="nombre" i], input[id*="user" i], input[id*="email" i], input[id*="nombre" i]'
     );
 
     const passwordField = passwordFields[0]; // Primer campo de password
@@ -418,6 +437,77 @@ const observer = new MutationObserver((mutations) => {
 observer.observe(document.body, {
   childList: true,
   subtree: true,
+});
+
+/**
+ * Listener para autofill desde background
+ * Cuando el usuario crea una entrada en el popup, background puede enviar las credenciales
+ * para autorellenar el formulario actual
+ */
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'AUTOFILL_CREDENTIALS') {
+    const { username, password } = message.payload;
+
+    // Buscar formularios en la página
+    const detected = detectForms();
+    if (detected.length === 0) {
+      sendResponse({ ok: false, error: 'No forms detected' });
+      return;
+    }
+
+    // Usar el primer formulario detectado
+    const { form, usernameField, passwordField } = detected[0];
+
+    // Rellenar campos
+    if (usernameField && username) {
+      usernameField.value = username;
+      usernameField.dispatchEvent(new Event('input', { bubbles: true }));
+      usernameField.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    if (passwordField && password) {
+      passwordField.value = password;
+      passwordField.dispatchEvent(new Event('input', { bubbles: true }));
+      passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    // Mostrar confirmación visual
+    const notification = document.createElement('div');
+    notification.innerHTML = `
+      <div style="
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #10b981;
+        color: white;
+        padding: 16px 24px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 999999;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        animation: slideIn 0.3s ease-out;
+      ">
+        ✓ Credenciales completadas automáticamente
+      </div>
+      <style>
+        @keyframes slideIn {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+      </style>
+    `;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+      notification.style.transition = 'opacity 0.3s';
+      notification.style.opacity = '0';
+      setTimeout(() => notification.remove(), 300);
+    }, 3000);
+
+    sendResponse({ ok: true });
+  }
 });
 
 console.log('[G8keeper] Auto-capture content script loaded');

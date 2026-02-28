@@ -16,10 +16,12 @@ Cuando el usuario visita una página con un formulario de registro:
 - ✅ Si usuario acepta → abre popup para generar contraseña segura
 
 **Heurísticas de detección de signup:**
-- Campo "confirm password"
+- Campo "confirm password" (soporta: confirm, repeat, repetir, confirmar)
+- Búsqueda en: name, id, placeholder, aria-label (case-insensitive)
 - Campo "email" sin "username"
-- Botón con texto: "sign up", "register", "create account"
-- URL contiene: `/signup`, `/register`, `/join`
+- Botón con texto: "sign up", "register", "create account", "crear cuenta", "registrarse"
+- URL contiene: `/signup`, `/register`, `/join`, `/crear-cuenta`, `/registro`
+- Soporte multiidioma (español e inglés)
 
 ### 2. **Captura Post-Registro**
 Cuando el usuario completa un formulario sin usar el vault:
@@ -30,6 +32,16 @@ Cuando el usuario completa un formulario sin usar el vault:
 - ✅ Captura username y password del formulario
 - ✅ Muestra notification pidiendo guardar en vault
 - ✅ Si usuario acepta → guarda automáticamente
+
+### 3. **Auto-fill Después de Creación**
+Cuando el usuario crea una entrada desde el popup en un formulario de signup:
+
+**Comportamiento:**
+- ✅ Popup crea entrada con contraseña segura generada
+- ✅ Background envía mensaje a content script con credenciales
+- ✅ Content script autorellena formulario automáticamente
+- ✅ Muestra confirmación visual
+- ✅ Usuario solo debe clickear "enviar" (el form ya está completo)
 
 ## 🔒 Consideraciones de Seguridad
 
@@ -51,8 +63,9 @@ Cuando el usuario completa un formulario sin usar el vault:
 
 ### **Modificados:**
 - `manifest.json` - Añadido content_scripts, permissions (activeTab, scripting), host_permissions
-- `src/shared/messages.ts` - Añadido `OPEN_POPUP_FOR_SIGNUP` message type
+- `src/shared/messages.ts` - Añadido `OPEN_POPUP_FOR_SIGNUP` y `AUTOFILL_CREDENTIALS` message types
 - `src/background/session.ts` - Handler para verificar vault desbloqueado
+- `src/content/autofill.ts` - Mejoradas heurísticas (multiidioma) y añadido listener para autofill
 - `package.json` - Script de build actualizado para compilar content script
 
 ## 🚀 Uso
@@ -66,6 +79,8 @@ Cuando el usuario completa un formulario sin usar el vault:
    → Usuario click "Abrir Vault"
    → Popup se abre con generador de passwords
    → Usuario crea credencial segura
+   → Formulario se autorellena automáticamente
+   → Usuario solo hace click en "Enviar"
    ```
 
 2. **Flujo reactivo (post-submit):**
