@@ -46,6 +46,7 @@ async function dispatchMessage(message: AnyRequestMessage): Promise<MessageRespo
 
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {
   if (!sender.id || sender.id !== chrome.runtime.id) {
+    console.warn('[sw] FORBIDDEN: Invalid message origin');
     sendResponse({
       ok: false,
       error: {
@@ -59,6 +60,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
   if (sender.tab) {
     const type = message?.type;
     if (!type || !CONTENT_SCRIPT_ALLOWED_TYPES.has(type)) {
+      console.warn('[sw] FORBIDDEN: Content script not allowed for message type:', type);
       sendResponse({
         ok: false,
         error: {
@@ -76,6 +78,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     })
     .catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
+      console.error('[sw] Dispatch error:', msg, e);
       sendResponse({ ok: false, error: { code: "UNHANDLED_ERROR", message: msg } });
     });
 

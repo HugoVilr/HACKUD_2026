@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { generatePassword } from "../src/core/generator/generator.ts";
 
 test("generatePassword enforces min/max length", () => {
-  assert.equal(generatePassword({ length: 1 }).length, 8);
-  assert.equal(generatePassword({ length: 999 }).length, 128);
+  assert.equal(generatePassword({ length: 1 }).length, 12);
+  assert.equal(generatePassword({ length: 999 }).length, 256);
 });
 
 test("generatePassword avoidAmbiguous excludes O0Il1", () => {

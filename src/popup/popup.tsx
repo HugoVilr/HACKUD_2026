@@ -11,10 +11,15 @@ const state = {
   toastMessage: "",
   toastTone: "info",
   entries: [],
-  showDeleteConfirm: false
+  showDeleteConfirm: false,
+  recoveryCodes: null, // Códigos de recuperación (solo después de crear vault)
+  recoveryCodesAcknowledged: false,
+  recoveryCodesSaved: false, // Se marca true cuando el usuario copia o exporta los códigos
+  showRecoveryCodeUnlock: false // Mostrar opción de desbloqueo con recovery code
 };
 
 const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+const RECOVERY_CODES_KEY = "g8keeper_recovery_codes_context";
 
 const root = document.getElementById("app");
 if (!root) {
@@ -128,12 +133,16 @@ const getSelectedEntry = () => {
 };
 
 const sendApiMessage = async (type, payload) => {
-  const message = payload === undefined ? { type } : { type, payload };
-  const res = await chrome.runtime.sendMessage(message);
-  if (!res || typeof res.ok !== "boolean") {
-    throw new Error("api-bad-response");
+  try {
+    const message = payload === undefined ? { type } : { type, payload };
+    const res = await chrome.runtime.sendMessage(message);
+    if (!res || typeof res.ok !== "boolean") {
+      throw new Error("api-bad-response");
+    }
+    return res;
+  } catch (error) {
+    throw error;
   }
-  return res;
 };
 
 const consumeSignupUnlockContext = async () => {
@@ -150,6 +159,40 @@ const consumeSignupUnlockContext = async () => {
     return isSignupContext && !isExpired;
   } catch {
     return false;
+  }
+};
+
+// Guardar estado de recovery codes para que persista entre aperturas del popup
+const saveRecoveryCodesContext = async () => {
+  if (!state.recoveryCodes || state.recoveryCodes.length === 0) {
+    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+    return;
+  }
+  await chrome.storage.session.set({
+    [RECOVERY_CODES_KEY]: {
+      codes: state.recoveryCodes,
+      acknowledged: state.recoveryCodesAcknowledged,
+      saved: state.recoveryCodesSaved,
+      vaultName: state.vaultName
+    }
+  });
+};
+
+// Restaurar estado de recovery codes al abrir popup
+const restoreRecoveryCodesContext = async () => {
+  try {
+    const data = await chrome.storage.session.get(RECOVERY_CODES_KEY);
+    const context = data?.[RECOVERY_CODES_KEY];
+    if (context && Array.isArray(context.codes) && context.codes.length > 0) {
+      state.recoveryCodes = context.codes;
+      state.recoveryCodesAcknowledged = Boolean(context.acknowledged);
+      state.recoveryCodesSaved = Boolean(context.saved);
+      if (context.vaultName) {
+        state.vaultName = context.vaultName;
+      }
+    }
+  } catch (err) {
+    // Silent error - non-critical context restore
   }
 };
 
@@ -217,6 +260,60 @@ const ensureSelectedSecret = async () => {
 };
 
 const renderCreateVault = () => {
+  // Si acabamos de crear el vault y tenemos recovery codes, mostrarlos
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    return `
+      <div class="recovery-codes-screen">
+        <h1>🔐 Códigos de Recuperación</h1>
+        <p class="muted warning-text">
+          ⚠️ <strong>IMPORTANTE:</strong> Guarda estos códigos en un lugar seguro.
+          Son la única forma de recuperar tu vault si olvidas tu contraseña maestra.
+        </p>
+
+        <div class="recovery-codes-list">
+          ${state.recoveryCodes.map((code, i) => `
+            <div class="recovery-code-item">
+              <span class="code-number">${i + 1}.</span>
+              <code class="code-text">${escapeHtml(code)}</code>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="recovery-codes-info">
+          <ul>
+            <li>✓ Cada código puede usarse <strong>UNA SOLA VEZ</strong></li>
+            <li>✓ Tienen 256 bits de entropía (ultra seguros)</li>
+            <li>✓ NO los compartas con nadie</li>
+            <li>✓ Imprímelos y guárdalos físicamente</li>
+          </ul>
+        </div>
+
+        <div class="stack">
+          <button type="button" data-action="copy-recovery-codes" class="secondary">
+            📋 Copiar todos
+          </button>
+          <button type="button" data-action="export-recovery-codes" class="secondary">
+            💾 Exportar como .txt
+          </button>
+          
+          <label class="field checkbox-field">
+            <input type="checkbox" data-action="toggle-recovery-ack" ${state.recoveryCodesAcknowledged ? 'checked' : ''} />
+            <span>He guardado mis códigos de recuperación en un lugar seguro</span>
+          </label>
+
+          <button 
+            type="button" 
+            data-action="done-recovery-codes" 
+            class="primary" 
+            ${!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged ? 'disabled' : ''}
+          >
+            Continuar
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <h1>Create vault</h1>
     <p class="muted">Crea una master password para tu vault local.</p>
@@ -243,6 +340,21 @@ const renderUnlock = () => {
     ? `Vault: ${escapeHtml(state.vaultName)}`
     : "Vault local detectado. Introduce tu master password.";
 
+  if (state.showRecoveryCodeUnlock) {
+    return `
+      <h1>Recovery Code</h1>
+      <p class="muted">Introduce uno de tus códigos de recuperación</p>
+      <form data-action="unlock-recovery" class="stack">
+        <label class="field">
+          <span>Recovery Code</span>
+          <input name="recoveryCode" type="text" required placeholder="Pega aquí tu recovery code" />
+        </label>
+        <button class="primary" type="submit">Desbloquear</button>
+        <button type="button" data-action="cancel-recovery" class="secondary">Volver a master password</button>
+      </form>
+    `;
+  }
+
   return `
     <h1>Unlock vault</h1>
     <p class="muted">${vaultHint}</p>
@@ -252,6 +364,7 @@ const renderUnlock = () => {
         <input name="master" type="password" required value="${escapeHtml(state.unlockMasterDraft)}" />
       </label>
       <button class="primary" type="submit">Desbloquear</button>
+      <button type="button" data-action="show-recovery" class="secondary">¿Olvidaste tu contraseña?</button>
     </form>
   `;
 };
@@ -479,7 +592,7 @@ const render = () => {
       ${state.toastMessage ? `<div class="toast ${state.toastTone}">${escapeHtml(state.toastMessage)}</div>` : ""}
 
       <div class="topline">
-        <pre class="ascii-art" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
+        <pre class="ascii-art" tabindex="-1" aria-hidden="true">${escapeHtml(ASCII_ART)}</pre>
         <header class="row">
           <span class="chip">${routeLabels[state.route]}</span>
         </header>
@@ -537,8 +650,16 @@ root.addEventListener("submit", async (event) => {
         return;
       }
 
+      // Capturar recovery codes de la respuesta
+      if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
+        state.recoveryCodes = res.data.recoveryCodes;
+        state.recoveryCodesAcknowledged = false;
+        render(); // Re-render para mostrar los recovery codes
+        return;
+      }
+
       await refreshStatus();
-      setToast("Vault creado. Ahora desbloquealo.", "success");
+      setToast("Vault creado.", "success");
     } catch (_error) {
       setToast("Error al crear el vault.", "error");
     }
@@ -582,6 +703,38 @@ root.addEventListener("submit", async (event) => {
       setToast("Vault desbloqueado.", "success");
     } catch (_error) {
       state.unlockMasterDraft = "";
+      setToast("No se pudo desbloquear el vault.", "error");
+    }
+
+    return;
+  }
+
+  if (action === "unlock-recovery") {
+    const recoveryCode = String(data.get("recoveryCode") ?? "").trim();
+    if (!recoveryCode) {
+      setToast("Introduce tu recovery code.", "error");
+      return;
+    }
+
+    try {
+      const res = await sendApiMessage("VAULT_UNLOCK_RECOVERY", {
+        recoveryCode
+      });
+
+      if (!res.ok) {
+        if (res.error?.code === "RECOVERY_CODE_USED") {
+          setToast("Este recovery code ya fue utilizado.", "error");
+        } else {
+          setToast("Recovery code inválido.", "error");
+        }
+        return;
+      }
+
+      state.showRecoveryCodeUnlock = false;
+      await refreshStatus();
+      
+      setToast(`Vault desbloqueado con recovery code. ⚠️ CAMBIA TU CONTRASEÑA MAESTRA inmediatamente.`, "success");
+    } catch (_error) {
       setToast("No se pudo desbloquear el vault.", "error");
     }
 
@@ -708,6 +861,12 @@ root.addEventListener("submit", async (event) => {
         return;
       }
 
+      // Limpiar recovery codes al eliminar vault
+      state.recoveryCodes = null;
+      state.recoveryCodesAcknowledged = false;
+      state.recoveryCodesSaved = false;
+      await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+      
       state.showDeleteConfirm = false;
       await refreshStatus();
       setToast("Vault eliminado correctamente.", "success");
@@ -814,6 +973,80 @@ root.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "show-recovery") {
+    state.showRecoveryCodeUnlock = true;
+    render();
+    return;
+  }
+
+  if (action === "cancel-recovery") {
+    state.showRecoveryCodeUnlock = false;
+    render();
+    return;
+  }
+
+  if (action === "toggle-recovery-ack") {
+    state.recoveryCodesAcknowledged = !state.recoveryCodesAcknowledged;
+    await saveRecoveryCodesContext();
+    render();
+    return;
+  }
+
+  if (action === "copy-recovery-codes") {
+    if (!state.recoveryCodes) return;
+    const text = state.recoveryCodes.map((code, i) => `${i + 1}. ${code}`).join("\n");
+    try {
+      await copyText(text);
+      state.recoveryCodesSaved = true;
+      await saveRecoveryCodesContext();
+      setToast("Códigos copiados al portapapeles", "success");
+    } catch {
+      setToast("No se pudo copiar", "error");
+    }
+    return;
+  }
+
+  if (action === "export-recovery-codes") {
+    if (!state.recoveryCodes) return;
+    try {
+      const res = await sendApiMessage("EXPORT_RECOVERY_CODES", {
+        codes: state.recoveryCodes,
+        vaultName: state.vaultName || undefined
+      });
+      if (!res.ok) {
+        setToast("Error al exportar", "error");
+        return;
+      }
+      // Crear y descargar el archivo
+      const blob = new Blob([res.data.blob], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.data.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      state.recoveryCodesSaved = true;
+      await saveRecoveryCodesContext();
+      setToast("Códigos exportados", "success");
+    } catch {
+      setToast("Error al exportar", "error");
+    }
+    return;
+  }
+
+  if (action === "done-recovery-codes") {
+    if (!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged) return;
+    state.recoveryCodes = null;
+    state.recoveryCodesAcknowledged = false;
+    state.recoveryCodesSaved = false;
+    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+    await refreshStatus();
+    setToast("Vault creado exitosamente", "success");
+    return;
+  }
+
   if (action === "to-edit") {
     state.formPasswordVisible = false;
     await ensureSelectedSecret();
@@ -888,5 +1121,8 @@ root.addEventListener("click", async (event) => {
   }
 });
 
-render();
-void refreshStatus();
+// Restaurar recovery codes si existen antes de renderizar
+void restoreRecoveryCodesContext().then(() => {
+  render();
+  void refreshStatus();
+});
