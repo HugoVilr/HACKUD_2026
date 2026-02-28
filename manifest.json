@@ -23,8 +23,12 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": ["https://api.pwnedpasswords.com/*", "<all_urls>"],
+  "permissions": ["storage", "activeTab", "scripting", "alarms"],
+  "host_permissions": [
+    "https://api.pwnedpasswords.com/*",
+    "https://haveibeenpwned.com/*",
+    "<all_urls>"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none';"
   }

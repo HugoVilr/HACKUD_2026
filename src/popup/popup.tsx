@@ -298,6 +298,7 @@ const renderList = () => {
     }
     return (
       String(entry.title || "").toLowerCase().includes(needle) ||
+      String(entry.domain || "").toLowerCase().includes(needle) ||
       String(entry.username || "").toLowerCase().includes(needle) ||
       String(entry.notes || "").toLowerCase().includes(needle)
     );
@@ -350,6 +351,7 @@ const renderList = () => {
 const renderEntryForm = (mode) => {
   const entry = mode === "edit" ? getSelectedEntry() : null;
   const title = entry?.title ?? "";
+  const domain = entry?.domain ?? "";
   const username = entry?.username ?? "";
   const password = mode === "edit" ? state.selectedSecret?.password ?? "" : "";
   const notes = entry?.notes ?? "";
@@ -364,6 +366,10 @@ const renderEntryForm = (mode) => {
       <label class="field">
         <span>Titulo</span>
         <input name="title" type="text" required maxlength="60" value="${escapeHtml(title)}" />
+      </label>
+      <label class="field">
+        <span>Dominio (opcional)</span>
+        <input name="domain" type="text" maxlength="120" placeholder="ej: github.com" value="${escapeHtml(domain)}" />
       </label>
       <label class="field">
         <span>Usuario</span>
@@ -414,6 +420,9 @@ const renderEntryDetail = () => {
     <dl class="detail-grid">
       <dt>Titulo</dt>
       <dd>${escapeHtml(entry.title || "")}</dd>
+
+      <dt>Dominio</dt>
+      <dd>${escapeHtml(entry.domain || "-")}</dd>
 
       <dt>Usuario</dt>
       <dd>
@@ -591,6 +600,7 @@ root.addEventListener("submit", async (event) => {
 
   if (action === "save-entry") {
     const title = String(data.get("title") ?? "").trim();
+    const domain = String(data.get("domain") ?? "").trim();
     const username = String(data.get("username") ?? "").trim();
     const password = String(data.get("password") ?? "").trim();
     const notes = String(data.get("notes") ?? "").trim();
@@ -614,6 +624,7 @@ root.addEventListener("submit", async (event) => {
           entry: {
             id: state.selectedEntryId,
             title,
+            domain: domain || undefined,
             username: username || undefined,
             password,
             notes: notes || undefined,
@@ -642,6 +653,7 @@ root.addEventListener("submit", async (event) => {
       const res = await sendApiMessage("ENTRY_ADD", {
         entry: {
           title,
+          domain: domain || undefined,
           username: username || undefined,
           password,
           notes: notes || undefined

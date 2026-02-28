@@ -14,6 +14,7 @@
 
 interface CapturedFormData {
   url: string;
+  domain: string;
   title: string;
   username: string;
   password: string;
@@ -841,6 +842,7 @@ function showCreateEntryModal(form: HTMLFormElement): void {
         payload: {
           entry: {
             title,
+            domain: window.location.hostname,
             username,
             password
           }
@@ -947,6 +949,7 @@ function captureFormData(detected: DetectedForm): CapturedFormData | null {
 
   return {
     url: window.location.origin,
+    domain: window.location.hostname,
     title: document.title,
     username,
     password,
@@ -1030,6 +1033,7 @@ function showSaveSuggestion(formData: CapturedFormData): void {
         payload: {
           entry: {
             title: formData.title,
+            domain: formData.domain,
             username: formData.username,
             password: formData.password,
             notes: `Auto-captured from ${formData.url}`,

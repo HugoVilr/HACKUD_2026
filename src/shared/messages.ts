@@ -127,6 +127,10 @@ export interface HibpAuditSummary {
   compromised: number;
   safe: number;
   errors: number;
+  domainPwned: number;
+  domainSafe: number;
+  domainErrors: number;
+  domainSkipped: number;
 }
 
 export interface HibpAuditItem {
@@ -136,6 +140,11 @@ export interface HibpAuditItem {
   compromised: boolean;
   status: "ok" | "error";
   error?: string;
+  domain?: string;
+  domainStatus: "pwned" | "safe" | "error" | "skipped";
+  domainBreachCount: number | null;
+  domainBreaches?: string[];
+  domainError?: string;
 }
 
 export interface HibpAuditScheduleData {

@@ -69,7 +69,15 @@ const session: Session = {
 type HibpAuditRecord = {
   audit: HibpAuditSummary;
   items: HibpAuditItem[];
-  entryRefs: Array<{ entryId: string; title: string }>;
+  entryRefs: Array<{ entryId: string; title: string; domain?: string }>;
+  domainCache: Record<string, DomainAuditCacheEntry>;
+};
+
+type DomainAuditCacheEntry = {
+  status: HibpAuditItem["domainStatus"];
+  breachCount: number | null;
+  breaches?: string[];
+  error?: string;
 };
 
 const HIBP_AUDIT_PREFIX = "g8keeper_hibp_audit_";
@@ -89,6 +97,9 @@ const sleep = async (ms: number) => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+const URL_IN_TEXT_REGEX = /https?:\/\/[^\s<>"')]+/gi;
+const DOMAIN_IN_TEXT_REGEX = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b/gi;
+
 const loadAuditRecord = async (auditId: string): Promise<HibpAuditRecord | null> => {
   const key = auditStorageKey(auditId);
   const data = await chrome.storage.session.get(key);
@@ -96,7 +107,33 @@ const loadAuditRecord = async (auditId: string): Promise<HibpAuditRecord | null>
   if (!record || typeof record !== "object") {
     return null;
   }
-  return record as HibpAuditRecord;
+  const raw = record as Partial<HibpAuditRecord> & { audit?: Partial<HibpAuditSummary> };
+  const audit = raw.audit ?? {};
+  const normalized: HibpAuditRecord = {
+    audit: {
+      auditId: String(audit.auditId ?? auditId),
+      state: (audit.state as HibpAuditSummary["state"]) ?? "running",
+      startedAt: Number(audit.startedAt ?? Date.now()),
+      finishedAt: Number.isFinite(Number(audit.finishedAt)) ? Number(audit.finishedAt) : undefined,
+      total: Number(audit.total ?? 0),
+      processed: Number(audit.processed ?? 0),
+      compromised: Number(audit.compromised ?? 0),
+      safe: Number(audit.safe ?? 0),
+      errors: Number(audit.errors ?? 0),
+      domainPwned: Number(audit.domainPwned ?? 0),
+      domainSafe: Number(audit.domainSafe ?? 0),
+      domainErrors: Number(audit.domainErrors ?? 0),
+      domainSkipped: Number(audit.domainSkipped ?? 0),
+    },
+    items: Array.isArray(raw.items) ? (raw.items as HibpAuditItem[]) : [],
+    entryRefs: Array.isArray(raw.entryRefs) ? (raw.entryRefs as HibpAuditRecord["entryRefs"]) : [],
+    domainCache:
+      raw.domainCache && typeof raw.domainCache === "object"
+        ? (raw.domainCache as HibpAuditRecord["domainCache"])
+        : {},
+  };
+
+  return normalized;
 };
 
 const saveAuditRecord = async (record: HibpAuditRecord): Promise<void> => {
@@ -168,6 +205,111 @@ const hibpCheckWithRetry = async (password: string): Promise<number> => {
   throw lastError instanceof Error ? lastError : new Error("HIBP_CHECK_FAILED");
 };
 
+const normalizeDomainForAudit = (raw: string | undefined): string | null => {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return null;
+  try {
+    if (value.includes("://")) {
+      const host = new URL(value).hostname.trim().toLowerCase();
+      return host.replace(/^www\./, "") || null;
+    }
+  } catch {
+    // fallback below
+  }
+  const noProto = value.replace(/^https?:\/\//, "");
+  const host = noProto.split("/")[0]?.trim().toLowerCase() ?? "";
+  if (!host || host.includes(" ") || host.startsWith(".")) {
+    return null;
+  }
+  return host.replace(/\.+$/, "").replace(/^www\./, "") || null;
+};
+
+const extractDomainFromText = (raw: string | undefined): string | null => {
+  const text = String(raw ?? "").trim().toLowerCase();
+  if (!text) return null;
+
+  const urlMatches = text.match(URL_IN_TEXT_REGEX) ?? [];
+  for (const value of urlMatches) {
+    const domain = normalizeDomainForAudit(value);
+    if (domain) return domain;
+  }
+
+  const hostMatches = text.match(DOMAIN_IN_TEXT_REGEX) ?? [];
+  for (const value of hostMatches) {
+    const domain = normalizeDomainForAudit(value);
+    if (domain) return domain;
+  }
+
+  return null;
+};
+
+const resolveEntryDomain = (entry: { domain?: string; title?: string; notes?: string }): string | undefined => {
+  return (
+    normalizeDomainForAudit(entry.domain) ??
+    extractDomainFromText(entry.title) ??
+    extractDomainFromText(entry.notes) ??
+    undefined
+  );
+};
+
+const hibpDomainCheck = async (domain: string): Promise<DomainAuditCacheEntry> => {
+  const url = `https://haveibeenpwned.com/api/v3/breaches?domain=${encodeURIComponent(domain)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "User-Agent": "Seeking the Perfect Key (HackUDC 2026)",
+      "Accept": "application/json",
+    },
+  });
+
+  if (res.status === 404) {
+    return { status: "safe", breachCount: 0, breaches: [] };
+  }
+  if (res.status === 429) {
+    throw new Error("HIBP_DOMAIN_RATE_LIMITED");
+  }
+  if (res.status === 403) {
+    throw new Error("HIBP_DOMAIN_FORBIDDEN");
+  }
+  if (!res.ok) {
+    throw new Error(`HIBP_DOMAIN_HTTP_${res.status}`);
+  }
+
+  const data = await res.json();
+  if (!Array.isArray(data)) {
+    throw new Error("HIBP_DOMAIN_BAD_RESPONSE");
+  }
+
+  const breaches = data
+    .map((item) => String(item?.Name || item?.Title || "").trim())
+    .filter(Boolean);
+
+  const uniq = [...new Set(breaches)];
+  return {
+    status: uniq.length > 0 ? "pwned" : "safe",
+    breachCount: uniq.length,
+    breaches: uniq.slice(0, 10),
+  };
+};
+
+const hibpDomainCheckWithRetry = async (domain: string): Promise<DomainAuditCacheEntry> => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await hibpDomainCheck(domain);
+    } catch (error) {
+      lastError = error;
+      const message = String((error as Error)?.message ?? error);
+      const transient = message.includes("RATE_LIMITED") || message.includes("HTTP_503");
+      if (!transient || attempt === 2) {
+        throw error;
+      }
+      await sleep((attempt + 1) * 1200);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("HIBP_DOMAIN_CHECK_FAILED");
+};
+
 const finalizeScheduleAfterAudit = async (audit: HibpAuditSummary): Promise<void> => {
   const schedule = await loadSchedule();
   const now = Date.now();
@@ -221,6 +363,11 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
     const sourceEntry = session.plaintext.entries.find((entry) => entry.id === target.entryId);
     let count: number | null = null;
     let errorMessage: string | undefined;
+    const domain = normalizeDomainForAudit(target.domain);
+    let domainResult: DomainAuditCacheEntry = {
+      status: "skipped",
+      breachCount: null,
+    };
 
     try {
       const password = String(sourceEntry?.password ?? "");
@@ -230,6 +377,24 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       count = await hibpCheckWithRetry(password);
     } catch (error) {
       errorMessage = String((error as Error)?.message ?? error);
+    }
+
+    if (domain) {
+      const cached = record.domainCache[domain];
+      if (cached) {
+        domainResult = cached;
+      } else {
+        try {
+          domainResult = await hibpDomainCheckWithRetry(domain);
+        } catch (error) {
+          domainResult = {
+            status: "error",
+            breachCount: null,
+            error: String((error as Error)?.message ?? error),
+          };
+        }
+        record.domainCache[domain] = domainResult;
+      }
     }
 
     const compromised = Number(count) > 0;
@@ -242,6 +407,11 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       compromised: status === "ok" ? compromised : false,
       status,
       error: errorMessage,
+      domain: domain ?? undefined,
+      domainStatus: domainResult.status,
+      domainBreachCount: domainResult.breachCount,
+      domainBreaches: domainResult.breaches,
+      domainError: domainResult.error,
     });
 
     record.audit.processed += 1;
@@ -251,6 +421,16 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       record.audit.compromised += 1;
     } else {
       record.audit.safe += 1;
+    }
+
+    if (domainResult.status === "pwned") {
+      record.audit.domainPwned += 1;
+    } else if (domainResult.status === "safe") {
+      record.audit.domainSafe += 1;
+    } else if (domainResult.status === "error") {
+      record.audit.domainErrors += 1;
+    } else {
+      record.audit.domainSkipped += 1;
     }
 
     if (record.audit.processed >= record.audit.total) {
@@ -281,6 +461,9 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       compromised: false,
       status: "error",
       error: message,
+      domainStatus: "error",
+      domainBreachCount: null,
+      domainError: message,
     });
     await saveAuditRecord(record);
     await finalizeScheduleAfterAudit(record.audit);
@@ -337,6 +520,7 @@ const startHibpAudit = async (): Promise<{ auditId: string; total: number; start
   const entryRefs = session.plaintext!.entries.map((entry) => ({
     entryId: entry.id,
     title: String(entry.title || "(sin titulo)"),
+    domain: resolveEntryDomain(entry),
   }));
 
   if (entryRefs.length === 0) {
@@ -356,9 +540,14 @@ const startHibpAudit = async (): Promise<{ auditId: string; total: number; start
       compromised: 0,
       safe: 0,
       errors: 0,
+      domainPwned: 0,
+      domainSafe: 0,
+      domainErrors: 0,
+      domainSkipped: 0,
     },
     items: [],
     entryRefs,
+    domainCache: {},
   };
 
   await saveAuditRecord(record);
@@ -579,7 +768,8 @@ function getAutofillCandidatesByHostname(hostname: string): AutofillCandidate[] 
   const out: AutofillCandidate[] = [];
 
   for (const entry of entries) {
-    const domain = normalizeEntryDomain(entry.domain);
+    const resolvedDomain = resolveEntryDomain(entry);
+    const domain = normalizeEntryDomain(resolvedDomain);
     const title = String(entry.title ?? "");
     const titleLc = title.toLowerCase();
     const domainBase = baseHostname(domain);
@@ -599,7 +789,7 @@ function getAutofillCandidatesByHostname(hostname: string): AutofillCandidate[] 
       id: entry.id,
       title: title || "(sin titulo)",
       username: entry.username,
-      domain: entry.domain,
+      domain: resolvedDomain,
       matchType,
     });
   }
@@ -881,7 +1071,11 @@ export async function handleMessage(
       case MESSAGE_TYPES.ENTRY_ADD: {
         requireUnlocked();
         touch();
-        const entry = message.payload.entry ?? ({} as any);
+        const entry = { ...(message.payload.entry ?? ({} as any)) };
+        const inferredDomain = resolveEntryDomain(entry);
+        if (inferredDomain) {
+          entry.domain = inferredDomain;
+        }
         let savedId = "";
         try {
           const { id } = upsertEntry(session.plaintext!, entry);
@@ -903,7 +1097,11 @@ export async function handleMessage(
       case MESSAGE_TYPES.ENTRY_UPDATE: {
         requireUnlocked();
         touch();
-        const entry = message.payload.entry ?? ({} as any);
+        const entry = { ...(message.payload.entry ?? ({} as any)) };
+        const inferredDomain = resolveEntryDomain(entry);
+        if (inferredDomain) {
+          entry.domain = inferredDomain;
+        }
         const targetId = String(entry.id ?? "");
         if (!targetId) return err("VALIDATION", "ID requerido para actualizar");
         let savedId = targetId;
