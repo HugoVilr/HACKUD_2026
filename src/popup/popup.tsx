@@ -24,17 +24,17 @@ const routeLabels = {
   UNLOCKED: "Unlocked"
 };
 
-const ASCII_ART = [
-  "                                                    ",
-  " (        (          )                              ",
-  " )\\ )     )\\ (    ( /(    (    (           (   (    ",
-  "(()/(    ((_))\\   )\\())  ))\\  ))\\ `  )    ))\\  )(   ",
-  " /(_))_    _((_) ((_)\\  /((_)/((_)/(/(   /((_)(()\\  ",
-  "(_)) __|  ( _ )  | |(_)(_)) (_)) ((_)_\\ (_))   ((_) ",
-  "  | (_ |  / _ \\  | / / / -_)/ -_)| '_ \\)/ -_) | '_| ",
-  "   \\___|  \\___/  |_\\_\\ \\___|\\___|| .__/ \\___| |_|   ",
-  "                                 |_|                "
-].join("\n");
+const ASCII_ART = String.raw`
+                                               
+ (        (          )                         
+ )\ )     )\ (    ( /(   (   (         (  (    
+(()/(    ((_))\   )\()) ))\ ))\`  )   ))\ )(   
+ /(_))_    _((_) ((_)\ /((_)((_)(/(  /((_|()\  
+(_)) __|  ( _ )  | |(_|_))(_))((_)_\(_))  ((_) 
+  | (_ |  / _ \  | / // -_) -_) '_ \) -_)| '_| 
+   \___|  \___/  |_\_\\___\___| .__/\___||_|   
+                              |_|              
+`;
 
 let toastTimeoutId = null;
 
@@ -227,31 +227,33 @@ const renderList = () => {
   // Si está mostrando el formulario de confirmación de eliminación
   if (state.showDeleteConfirm) {
     return `
-      <div class="toolbar">
-        <h1>⚠️ Eliminar Vault</h1>
-        <button type="button" data-action="cancel-delete" class="primary">Cancelar</button>
-      </div>
+      <div class="entries-screen">
+        <div class="toolbar">
+          <h1>⚠️ Eliminar Vault</h1>
+          <button type="button" data-action="cancel-delete" class="primary">Cancelar</button>
+        </div>
 
-      <div class="stack">
-        <p class="muted" style="color: #d32f2f; font-weight: bold;">
-          ⚠️ ADVERTENCIA: Esta acción es IRREVERSIBLE. Se eliminarán todas tus contraseñas guardadas.
-        </p>
-        
-        <form data-action="confirm-delete" class="stack">
-          <label class="field">
-            <span>Master password</span>
-            <input name="master" type="password" required />
-          </label>
+        <div class="stack">
+          <p class="muted warning-text">
+            ⚠️ ADVERTENCIA: Esta acción es IRREVERSIBLE. Se eliminarán todas tus contraseñas guardadas.
+          </p>
           
-          <label class="field">
-            <span>Escribe "eliminar" para confirmar</span>
-            <input name="confirmText" type="text" required placeholder="eliminar" />
-          </label>
-          
-          <button class="primary" type="submit" style="background-color: #d32f2f;">
-            Eliminar Vault Permanentemente
-          </button>
-        </form>
+          <form data-action="confirm-delete" class="stack">
+            <label class="field">
+              <span>Master password</span>
+              <input name="master" type="password" required />
+            </label>
+            
+            <label class="field">
+              <span>Escribe "eliminar" para confirmar</span>
+              <input name="confirmText" type="text" required placeholder="eliminar" />
+            </label>
+            
+            <button class="danger-button" type="submit">
+              Eliminar Vault Permanentemente
+            </button>
+          </form>
+        </div>
       </div>
     `;
   }
@@ -269,43 +271,45 @@ const renderList = () => {
   });
 
   return `
-    <div class="toolbar">
-      <h1>Vault entries</h1>
-      <div class="toolbar-actions">
-        <button type="button" data-action="to-add" class="primary">+ Add</button>
-        <button type="button" data-action="lock">Lock</button>
-        <button type="button" data-action="show-delete" style="background-color: #d32f2f;">Eliminar Vault</button>
+    <div class="entries-screen">
+      <div class="toolbar">
+        <h1>Vault entries</h1>
+        <div class="toolbar-actions">
+          <button type="button" data-action="to-add" class="primary">+ Add</button>
+          <button type="button" data-action="lock">Lock</button>
+          <button type="button" data-action="show-delete" class="caution-button">Eliminar Vault</button>
+        </div>
       </div>
+
+      <label class="field">
+        <span>Buscar</span>
+        <input
+          data-action="search"
+          type="search"
+          value="${escapeHtml(state.search)}"
+          placeholder="Titulo, user o nota"
+        />
+      </label>
+
+      <ul class="entry-list">
+        ${
+          visibleEntries.length === 0
+            ? '<li class="entry-empty">No hay resultados para la busqueda.</li>'
+            : visibleEntries
+                .map((entry) => {
+                  return `
+                    <li>
+                      <button type="button" data-action="open-entry" data-entry-id="${entry.id}" class="entry-item">
+                        <strong>${escapeHtml(entry.title || "")}</strong>
+                        <span>${escapeHtml(entry.username || "sin usuario")}</span>
+                      </button>
+                    </li>
+                  `;
+                })
+                .join("")
+        }
+      </ul>
     </div>
-
-    <label class="field">
-      <span>Buscar</span>
-      <input
-        data-action="search"
-        type="search"
-        value="${escapeHtml(state.search)}"
-        placeholder="Titulo, user o nota"
-      />
-    </label>
-
-    <ul class="entry-list">
-      ${
-        visibleEntries.length === 0
-          ? '<li class="entry-empty">No hay resultados para la busqueda.</li>'
-          : visibleEntries
-              .map((entry) => {
-                return `
-                  <li>
-                    <button type="button" data-action="open-entry" data-entry-id="${entry.id}" class="entry-item">
-                      <strong>${escapeHtml(entry.title || "")}</strong>
-                      <span>${escapeHtml(entry.username || "sin usuario")}</span>
-                    </button>
-                  </li>
-                `;
-              })
-              .join("")
-      }
-    </ul>
   `;
 };
 
@@ -429,7 +433,13 @@ const routeBody = () => {
 };
 
 const render = () => {
-  const popupModeClass = state.route === "UNLOCKED" ? "popup popup--unlocked" : "popup popup--auth";
+  const isUnlockedList =
+    state.route === "UNLOCKED" &&
+    state.screen === "LIST" &&
+    !state.showDeleteConfirm &&
+    state.entries.length > 0;
+  const popupModeClass = isUnlockedList ? "popup popup--unlocked" : "popup popup--auth";
+  const cardClass = isUnlockedList ? "card card--entries" : "card";
 
   root.innerHTML = `
     <main class="${popupModeClass}">
@@ -442,7 +452,7 @@ const render = () => {
         </header>
       </div>
 
-      <section class="card">
+      <section class="${cardClass}">
         ${routeBody()}
       </section>
     </main>
