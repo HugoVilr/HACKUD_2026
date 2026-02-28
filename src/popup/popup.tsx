@@ -667,6 +667,8 @@ root.addEventListener("submit", async (event) => {
       if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
         state.recoveryCodes = res.data.recoveryCodes;
         state.recoveryCodesAcknowledged = false;
+        state.recoveryCodesSaved = false;
+        await saveRecoveryCodesContext();
         render(); // Re-render para mostrar los recovery codes
         return;
       }
