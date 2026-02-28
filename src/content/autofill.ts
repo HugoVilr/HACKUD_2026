@@ -279,78 +279,10 @@ function showSignupSuggestion(form: HTMLFormElement): void {
 
   acceptBtn?.addEventListener('click', async () => {
     console.log('[G8keeper] User clicked "Abrir Vault"');
+    remove();
     
-    try {
-      // Enviar mensaje al background para registrar la intención
-      await chrome.runtime.sendMessage({ 
-        type: 'OPEN_POPUP_FOR_SIGNUP',
-        payload: {
-          url: window.location.href,
-          title: document.title,
-        }
-      });
-      
-      console.log('[G8keeper] Attempting to open popup...');
-      
-      // Intentar abrir el popup (requiere user gesture, que tenemos del click)
-      // En Manifest V3, esto puede fallar si no estamos en contexto válido
-      await chrome.action.openPopup();
-      
-      console.log('[G8keeper] Popup opened successfully');
-      remove();
-    } catch (error) {
-      console.log('[G8keeper] Cannot open popup automatically:', error);
-      
-      // Si falla, mostrar instrucciones visuales al usuario
-      const instruction = document.createElement('div');
-      instruction.innerHTML = `
-        <div style="
-          position: fixed;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: rgba(0, 0, 0, 0.95);
-          color: white;
-          padding: 32px 40px;
-          border-radius: 12px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-          z-index: 9999999;
-          font-family: system-ui, -apple-system, sans-serif;
-          text-align: center;
-          max-width: 400px;
-        ">
-          <div style="font-size: 48px; margin-bottom: 16px;">🔐</div>
-          <h3 style="margin: 0 0 12px 0; font-size: 20px;">Abre G8keeper</h3>
-          <p style="margin: 0 0 20px 0; opacity: 0.9; line-height: 1.5;">
-            Haz click en el <strong>icono de G8keeper</strong> en la barra de herramientas 
-            para crear una contraseña segura.
-          </p>
-          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 20px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 6px;">
-            <span style="font-size: 32px;">🧩</span>
-            <span style="font-size: 20px;">→</span>
-            <span style="font-size: 32px;">🔐</span>
-          </div>
-          <button id="g8keeper-got-it" style="
-            background: #1976d2;
-            color: white;
-            border: none;
-            padding: 10px 24px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 14px;
-          ">Entendido</button>
-        </div>
-      `;
-      
-      document.body.appendChild(instruction);
-      
-      instruction.querySelector('#g8keeper-got-it')?.addEventListener('click', () => {
-        instruction.remove();
-      });
-      
-      remove();
-    }
+    // Mostrar modal de creación dentro de la página
+    showCreateEntryModal(form);
   });
 
   dismissBtn?.addEventListener('click', remove);
@@ -358,6 +290,462 @@ function showSignupSuggestion(form: HTMLFormElement): void {
 
   // Auto-dismiss después de 15 segundos
   setTimeout(remove, 15000);
+}
+
+/**
+ * Mostrar modal de creación de entrada dentro de la página
+ */
+function showCreateEntryModal(form: HTMLFormElement): void {
+  console.log('[G8keeper] Opening create entry modal');
+  
+  // Detectar username actual del formulario para pre-rellenar
+  const detected = detectForms().find(f => f.form === form);
+  const currentUsername = detected?.usernameField?.value || '';
+  
+  // Crear overlay modal
+  const modal = document.createElement('div');
+  modal.id = 'g8keeper-create-modal';
+  modal.innerHTML = `
+    <style>
+      #g8keeper-modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 999998;
+        animation: g8keeper-fadeIn 0.2s ease-out;
+      }
+      
+      #g8keeper-modal-content {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        z-index: 999999;
+        width: 90%;
+        max-width: 480px;
+        max-height: 90vh;
+        overflow-y: auto;
+        animation: g8keeper-slideUp 0.3s ease-out;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      
+      @keyframes g8keeper-fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      
+      @keyframes g8keeper-slideUp {
+        from { 
+          transform: translate(-50%, -40%);
+          opacity: 0;
+        }
+        to { 
+          transform: translate(-50%, -50%);
+          opacity: 1;
+        }
+      }
+      
+      .g8keeper-modal-header {
+        padding: 24px 24px 16px;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      
+      .g8keeper-modal-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #1976d2;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .g8keeper-modal-body {
+        padding: 24px;
+      }
+      
+      .g8keeper-form-group {
+        margin-bottom: 20px;
+      }
+      
+      .g8keeper-form-label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        font-size: 14px;
+        color: #333;
+      }
+      
+      .g8keeper-form-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: inherit;
+        box-sizing: border-box;
+        transition: border-color 0.2s;
+      }
+      
+      .g8keeper-form-input:focus {
+        outline: none;
+        border-color: #1976d2;
+      }
+      
+      .g8keeper-password-group {
+        display: flex;
+        gap: 8px;
+      }
+      
+      .g8keeper-password-group input {
+        flex: 1;
+      }
+      
+      .g8keeper-btn-generate {
+        padding: 10px 16px;
+        background: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 13px;
+        white-space: nowrap;
+        transition: background 0.2s;
+      }
+      
+      .g8keeper-btn-generate:hover {
+        background: #45a049;
+      }
+      
+      .g8keeper-modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #e0e0e0;
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      }
+      
+      .g8keeper-btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 14px;
+        transition: all 0.2s;
+      }
+      
+      .g8keeper-btn-primary {
+        background: #1976d2;
+        color: white;
+      }
+      
+      .g8keeper-btn-primary:hover {
+        background: #1565c0;
+      }
+      
+      .g8keeper-btn-primary:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      
+      .g8keeper-btn-secondary {
+        background: transparent;
+        color: #666;
+        border: 1px solid #ddd;
+      }
+      
+      .g8keeper-btn-secondary:hover {
+        background: #f5f5f5;
+      }
+      
+      .g8keeper-btn-close {
+        background: transparent;
+        border: none;
+        color: #666;
+        cursor: pointer;
+        font-size: 24px;
+        line-height: 1;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      .g8keeper-btn-close:hover {
+        background: #f5f5f5;
+      }
+      
+      .g8keeper-error {
+        color: #d32f2f;
+        font-size: 13px;
+        margin-top: 8px;
+      }
+      
+      .g8keeper-hint {
+        color: #666;
+        font-size: 12px;
+        margin-top: 4px;
+      }
+    </style>
+    
+    <div id="g8keeper-modal-backdrop"></div>
+    <div id="g8keeper-modal-content">
+      <div class="g8keeper-modal-header">
+        <h2 class="g8keeper-modal-title">
+          <span>🔐</span>
+          Crear Credencial Segura
+        </h2>
+        <button class="g8keeper-btn-close" id="g8keeper-modal-close">×</button>
+      </div>
+      
+      <div class="g8keeper-modal-body">
+        <div class="g8keeper-form-group">
+          <label class="g8keeper-form-label">Título</label>
+          <input 
+            type="text" 
+            class="g8keeper-form-input" 
+            id="g8keeper-input-title"
+            placeholder="Ej: ${window.location.hostname}"
+            value="${window.location.hostname}"
+          />
+          <div class="g8keeper-hint">Nombre para identificar esta cuenta</div>
+        </div>
+        
+        <div class="g8keeper-form-group">
+          <label class="g8keeper-form-label">Usuario / Email</label>
+          <input 
+            type="text" 
+            class="g8keeper-form-input" 
+            id="g8keeper-input-username"
+            placeholder="tu-email@ejemplo.com"
+            value="${currentUsername}"
+          />
+        </div>
+        
+        <div class="g8keeper-form-group">
+          <label class="g8keeper-form-label">Contraseña</label>
+          <div class="g8keeper-password-group">
+            <input 
+              type="text" 
+              class="g8keeper-form-input" 
+              id="g8keeper-input-password"
+              placeholder="Click en Generar para crear contraseña segura"
+              readonly
+            />
+            <button class="g8keeper-btn-generate" id="g8keeper-btn-generate">
+              🎲 Generar
+            </button>
+          </div>
+          <div class="g8keeper-hint">Se generará una contraseña de 20 caracteres</div>
+        </div>
+        
+        <div id="g8keeper-modal-error" class="g8keeper-error" style="display: none;"></div>
+      </div>
+      
+      <div class="g8keeper-modal-footer">
+        <button class="g8keeper-btn g8keeper-btn-secondary" id="g8keeper-btn-cancel">
+          Cancelar
+        </button>
+        <button class="g8keeper-btn g8keeper-btn-primary" id="g8keeper-btn-save" disabled>
+          Guardar y Usar
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Referencias a elementos
+  const titleInput = modal.querySelector<HTMLInputElement>('#g8keeper-input-title')!;
+  const usernameInput = modal.querySelector<HTMLInputElement>('#g8keeper-input-username')!;
+  const passwordInput = modal.querySelector<HTMLInputElement>('#g8keeper-input-password')!;
+  const generateBtn = modal.querySelector<HTMLButtonElement>('#g8keeper-btn-generate')!;
+  const saveBtn = modal.querySelector<HTMLButtonElement>('#g8keeper-btn-save')!;
+  const cancelBtn = modal.querySelector<HTMLButtonElement>('#g8keeper-btn-cancel')!;
+  const closeBtn = modal.querySelector<HTMLButtonElement>('#g8keeper-modal-close')!;
+  const errorDiv = modal.querySelector<HTMLDivElement>('#g8keeper-modal-error')!;
+  const backdrop = modal.querySelector<HTMLDivElement>('#g8keeper-modal-backdrop')!;
+  
+  // Función para cerrar modal
+  const closeModal = () => {
+    modal.remove();
+  };
+  
+  // Validar formulario
+  const validateForm = () => {
+    const hasTitle = titleInput.value.trim().length > 0;
+    const hasUsername = usernameInput.value.trim().length > 0;
+    const hasPassword = passwordInput.value.length > 0;
+    
+    saveBtn.disabled = !(hasTitle && hasUsername && hasPassword);
+  };
+  
+  // Event listeners
+  titleInput.addEventListener('input', validateForm);
+  usernameInput.addEventListener('input', validateForm);
+  passwordInput.addEventListener('input', validateForm);
+  
+  generateBtn.addEventListener('click', async () => {
+    console.log('[G8keeper] Generating password...');
+    generateBtn.disabled = true;
+    generateBtn.textContent = '⏳ Generando...';
+    
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'GENERATE_PASSWORD',
+        payload: {
+          config: {
+            length: 20,
+            lower: true,
+            upper: true,
+            digits: true,
+            symbols: true,
+            avoidAmbiguous: true
+          }
+        }
+      });
+      
+      if (response.ok) {
+        passwordInput.value = response.data.password;
+        validateForm();
+        console.log('[G8keeper] Password generated successfully');
+      } else {
+        errorDiv.textContent = 'Error generando contraseña: ' + response.error?.message;
+        errorDiv.style.display = 'block';
+      }
+    } catch (error) {
+      console.error('[G8keeper] Error generating password:', error);
+      errorDiv.textContent = 'Error generando contraseña';
+      errorDiv.style.display = 'block';
+    } finally {
+      generateBtn.disabled = false;
+      generateBtn.textContent = '🎲 Generar';
+    }
+  });
+  
+  saveBtn.addEventListener('click', async () => {
+    console.log('[G8keeper] Saving entry...');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Guardando...';
+    errorDiv.style.display = 'none';
+    
+    const title = titleInput.value.trim();
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'ENTRY_ADD',
+        payload: {
+          entry: {
+            title,
+            username,
+            password
+          }
+        }
+      });
+      
+      if (response.ok) {
+        console.log('[G8keeper] Entry saved successfully');
+        
+        // Rellenar formulario automáticamente
+        if (detected) {
+          if (detected.usernameField) {
+            detected.usernameField.value = username;
+            detected.usernameField.dispatchEvent(new Event('input', { bubbles: true }));
+            detected.usernameField.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          
+          if (detected.passwordField) {
+            detected.passwordField.value = password;
+            detected.passwordField.dispatchEvent(new Event('input', { bubbles: true }));
+            detected.passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          
+          // Si hay campo de confirmación de password, rellenarlo también
+          const passwordFields = form.querySelectorAll<HTMLInputElement>('input[type="password"]');
+          passwordFields.forEach(field => {
+            field.value = password;
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          
+          console.log('[G8keeper] Form auto-filled with credentials');
+        }
+        
+        // Mostrar confirmación y cerrar modal
+        closeModal();
+        
+        // Mostrar notificación de éxito
+        const successNotification = document.createElement('div');
+        successNotification.innerHTML = `
+          <div style="
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #4caf50;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 999999;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease-out;
+          ">
+            ✓ Credenciales guardadas y completadas en el formulario
+          </div>
+          <style>
+            @keyframes slideIn {
+              from { transform: translateX(100%); opacity: 0; }
+              to { transform: translateX(0); opacity: 1; }
+            }
+          </style>
+        `;
+        document.body.appendChild(successNotification);
+        
+        setTimeout(() => {
+          successNotification.style.transition = 'opacity 0.3s';
+          successNotification.style.opacity = '0';
+          setTimeout(() => successNotification.remove(), 300);
+        }, 4000);
+        
+      } else {
+        errorDiv.textContent = 'Error guardando: ' + (response.error?.message || 'Error desconocido');
+        errorDiv.style.display = 'block';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Guardar y Usar';
+      }
+    } catch (error) {
+      console.error('[G8keeper] Error saving entry:', error);
+      errorDiv.textContent = 'Error guardando la entrada';
+      errorDiv.style.display = 'block';
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Guardar y Usar';
+    }
+  });
+  
+  cancelBtn.addEventListener('click', closeModal);
+  closeBtn.addEventListener('click', closeModal);
+  backdrop.addEventListener('click', closeModal);
+  
+  // Generar contraseña automáticamente al abrir
+  setTimeout(() => generateBtn.click(), 100);
 }
 
 /**
