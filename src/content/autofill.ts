@@ -36,51 +36,79 @@ interface DetectedForm {
  * - URL contiene: /signup, /register, /join → signup
  */
 function isSignupForm(form: HTMLFormElement): boolean {
-  // Buscar campo de confirmación de password (soporte multiidioma, case-insensitive)
-  const confirmPasswordField = form.querySelector<HTMLInputElement>(
-    [
-      'input[type="password"][name*="confirm" i]',
-      'input[type="password"][id*="confirm" i]',
-      'input[type="password"][name*="repeat" i]',
-      'input[type="password"][id*="repeat" i]',
-      'input[type="password"][name*="repetir" i]',
-      'input[type="password"][id*="repetir" i]',
-      'input[type="password"][name*="confirmar" i]',
-      'input[type="password"][id*="confirmar" i]',
-      'input[type="password"][placeholder*="confirm" i]',
-      'input[type="password"][placeholder*="repeat" i]',
-      'input[type="password"][placeholder*="repetir" i]',
-      'input[type="password"][aria-label*="confirm" i]',
-      'input[type="password"][aria-label*="repeat" i]',
-      'input[type="password"][aria-label*="repetir" i]',
-    ].join(',')
-  );
-  if (confirmPasswordField) return true;
+  console.log('[G8keeper] Checking if form is signup:', form);
+  
+  // Buscar campo de confirmación de password (búsqueda manual case-insensitive)
+  const passwordFields = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]'));
+  console.log('[G8keeper] Found password fields:', passwordFields.length);
+  
+  // Buscar confirm password field manualmente (case-insensitive)
+  const confirmKeywords = ['confirm', 'repeat', 'repetir', 'confirmar'];
+  const confirmPasswordField = passwordFields.find(field => {
+    const name = (field.name || '').toLowerCase();
+    const id = (field.id || '').toLowerCase();
+    const placeholder = (field.placeholder || '').toLowerCase();
+    const ariaLabel = (field.getAttribute('aria-label') || '').toLowerCase();
+    
+    return confirmKeywords.some(keyword => 
+      name.includes(keyword) || 
+      id.includes(keyword) || 
+      placeholder.includes(keyword) || 
+      ariaLabel.includes(keyword)
+    );
+  });
+  
+  if (confirmPasswordField) {
+    console.log('[G8keeper] ✓ Detected confirm password field:', confirmPasswordField);
+    return true;
+  }
 
   // Si hay más de un campo de password, probablemente sea signup
-  const passwordFields = form.querySelectorAll('input[type="password"]');
-  if (passwordFields.length >= 2) return true;
+  if (passwordFields.length >= 2) {
+    console.log('[G8keeper] ✓ Multiple password fields detected (signup):', passwordFields.length);
+    return true;
+  }
 
   // Buscar campo de email sin username (común en signups)
-  const emailField = form.querySelector<HTMLInputElement>(
-    'input[type="email"], input[name*="email" i], input[id*="email" i]'
-  );
-  const usernameField = form.querySelector<HTMLInputElement>(
-    'input[name*="username" i], input[id*="username" i]'
-  );
-  if (emailField && !usernameField) return true;
+  const allInputs = Array.from(form.querySelectorAll<HTMLInputElement>('input'));
+  const emailField = allInputs.find(input => {
+    const type = input.type.toLowerCase();
+    const name = (input.name || '').toLowerCase();
+    const id = (input.id || '').toLowerCase();
+    return type === 'email' || name.includes('email') || id.includes('email');
+  });
+  
+  const usernameField = allInputs.find(input => {
+    const name = (input.name || '').toLowerCase();
+    const id = (input.id || '').toLowerCase();
+    return name.includes('username') || id.includes('username');
+  });
+  
+  if (emailField && !usernameField) {
+    console.log('[G8keeper] ✓ Email field without username (signup):', emailField);
+    return true;
+  }
 
   // Analizar texto del botón submit (soporte español)
   const submitButton = form.querySelector<HTMLButtonElement>(
     'button[type="submit"], input[type="submit"], button:not([type])'
   );
   const buttonText = submitButton?.textContent?.toLowerCase() || submitButton?.value.toLowerCase() || '';
-  if (buttonText.match(/sign\s*up|register|create\s*account|join|crear\s*cuenta|registr|unirse/)) return true;
+  console.log('[G8keeper] Submit button text:', buttonText);
+  if (buttonText.match(/sign\s*up|register|create\s*account|join|crear\s*cuenta|registr|unirse/)) {
+    console.log('[G8keeper] ✓ Signup button text detected');
+    return true;
+  }
 
   // Analizar URL (soporte español)
   const url = window.location.href.toLowerCase();
-  if (url.match(/\/signup|\/register|\/join|\/create-account|\/crear-cuenta|\/registro/)) return true;
+  console.log('[G8keeper] Current URL:', url);
+  if (url.match(/\/signup|\/register|\/join|\/create-account|\/crear-cuenta|\/registro/)) {
+    console.log('[G8keeper] ✓ Signup URL pattern detected');
+    return true;
+  }
 
+  console.log('[G8keeper] ✗ Not detected as signup form');
   return false;
 }
 
@@ -89,6 +117,7 @@ function isSignupForm(form: HTMLFormElement): boolean {
  */
 function detectForms(): DetectedForm[] {
   const forms = Array.from(document.querySelectorAll<HTMLFormElement>('form'));
+  console.log('[G8keeper] Scanning page, found forms:', forms.length);
   const detected: DetectedForm[] = [];
 
   for (const form of forms) {
@@ -97,19 +126,41 @@ function detectForms(): DetectedForm[] {
       form.querySelectorAll<HTMLInputElement>('input[type="password"]')
     );
     
-    if (passwordFields.length === 0) continue;
+    if (passwordFields.length === 0) {
+      console.log('[G8keeper] Form has no password fields, skipping');
+      continue;
+    }
 
-    // Buscar campo de username/email (case-insensitive)
-    const usernameField = form.querySelector<HTMLInputElement>(
-      'input[type="email"], input[type="text"][name*="user" i], input[type="text"][name*="email" i], input[type="text"][name*="nombre" i], input[id*="user" i], input[id*="email" i], input[id*="nombre" i]'
-    );
+    // Buscar campo de username/email (búsqueda manual case-insensitive)
+    const allInputs = Array.from(form.querySelectorAll<HTMLInputElement>('input'));
+    const usernameField = allInputs.find(input => {
+      const type = input.type.toLowerCase();
+      const name = (input.name || '').toLowerCase();
+      const id = (input.id || '').toLowerCase();
+      
+      return type === 'email' || 
+        name.includes('user') || 
+        name.includes('email') || 
+        name.includes('nombre') ||
+        name.includes('correo') ||
+        id.includes('user') || 
+        id.includes('email') || 
+        id.includes('nombre') ||
+        id.includes('correo');
+    });
 
     const passwordField = passwordFields[0]; // Primer campo de password
     const isSignup = isSignupForm(form);
+    
+    console.log('[G8keeper] Form analysis:', { 
+      hasPasswordFields: passwordFields.length,
+      hasUsernameField: !!usernameField,
+      isSignup 
+    });
 
     detected.push({
       form,
-      usernameField,
+      usernameField: usernameField || null,
       passwordField,
       isSignup,
     });
@@ -126,8 +177,12 @@ async function isVaultUnlocked(): Promise<boolean> {
     const response = await chrome.runtime.sendMessage({
       type: 'VAULT_STATUS',
     });
+    
+    console.log('[G8keeper] Vault status:', response?.data);
+    const unlocked = response?.ok && response?.data?.hasVault && !response?.data?.locked;
+    console.log('[G8keeper] Vault unlocked?', unlocked);
 
-    return response?.ok && response?.data?.hasVault && !response?.data?.locked;
+    return unlocked;
   } catch (error) {
     console.error('[G8keeper] Error checking vault status:', error);
     return false;
@@ -384,15 +439,23 @@ function escapeHtmlContent(text: string): string {
  * Monitorear formularios detectados
  */
 async function monitorForms(): Promise<void> {
+  console.log('[G8keeper] monitorForms() called');
   const unlocked = await isVaultUnlocked();
-  if (!unlocked) return; // Solo funciona con vault desbloqueado
+  if (!unlocked) {
+    console.log('[G8keeper] Vault is locked, skipping form monitoring');
+    return; // Solo funciona con vault desbloqueado
+  }
 
   const detected = detectForms();
+  console.log('[G8keeper] Forms with password fields:', detected.length);
 
   for (const { form, isSignup, ...rest } of detected) {
     // Flujo 1: Sugerir crear desde vault si es signup
     if (isSignup) {
+      console.log('[G8keeper] Showing signup suggestion for form');
       showSignupSuggestion(form);
+    } else {
+      console.log('[G8keeper] Form is login, not signup - skipping suggestion');
     }
 
     // Flujo 2: Capturar después de submit exitoso
@@ -415,9 +478,19 @@ async function monitorForms(): Promise<void> {
 }
 
 // Ejecutar cuando el DOM esté listo
+console.log('[G8keeper] Auto-capture content script initializing...', {
+  readyState: document.readyState,
+  url: window.location.href
+});
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', monitorForms);
+  console.log('[G8keeper] DOM still loading, waiting for DOMContentLoaded...');
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('[G8keeper] DOMContentLoaded event fired');
+    monitorForms();
+  });
 } else {
+  console.log('[G8keeper] DOM already ready, monitoring forms now...');
   monitorForms();
 }
 
@@ -430,6 +503,7 @@ const observer = new MutationObserver((mutations) => {
   );
 
   if (hasNewForms) {
+    console.log('[G8keeper] New forms detected via MutationObserver, re-monitoring...');
     monitorForms();
   }
 });
@@ -438,6 +512,8 @@ observer.observe(document.body, {
   childList: true,
   subtree: true,
 });
+
+console.log('[G8keeper] MutationObserver initialized');
 
 /**
  * Listener para autofill desde background
