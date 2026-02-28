@@ -551,6 +551,27 @@ async function isVaultUnlocked(): Promise<boolean> {
   }
 }
 
+async function openUnlockPopupForSignup(): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'UI_OPEN_POPUP',
+      payload: { source: 'signup' },
+    });
+  } catch (error) {
+    console.error('[G8keeper] Error opening unlock popup:', error);
+  }
+}
+
+async function waitForVaultUnlock(maxWaitMs = 60_000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < maxWaitMs) {
+    const unlocked = await isVaultUnlocked();
+    if (unlocked) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
 /**
  * Mostrar notification sugiriendo crear cuenta desde vault
  */
@@ -590,8 +611,46 @@ function showSignupSuggestion(form: HTMLFormElement): void {
   const remove = () => notification.remove();
 
   acceptBtn?.addEventListener('click', async () => {
+    // Regla UX: si acepta crear contraseña, cerramos el aviso inmediatamente.
     remove();
-    
+
+    const acceptButton = acceptBtn as HTMLButtonElement;
+    acceptButton.disabled = true;
+    acceptButton.textContent = 'Procesando...';
+
+    const unlocked = await isVaultUnlocked();
+    if (!unlocked) {
+      await openUnlockPopupForSignup();
+
+      const unlockedAfterPopup = await waitForVaultUnlock(60_000);
+      if (!unlockedAfterPopup) {
+        const hint = document.createElement('div');
+        hint.innerHTML = `
+          <div style="
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1f4f93;
+            color: #bbd6ff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(187, 214, 255, 0.4);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+            z-index: 999999;
+            font-family: 'Roboto Mono', 'IBM Plex Mono', 'Fira Code', monospace;
+            font-size: 12px;
+          ">
+            No se pudo desbloquear a tiempo. Intentalo de nuevo.
+          </div>
+        `;
+        document.body.appendChild(hint);
+        setTimeout(() => hint.remove(), 3000);
+        acceptButton.disabled = false;
+        acceptButton.textContent = 'Abrir Vault';
+        return;
+      }
+    }
+
     // Mostrar modal de creación dentro de la página
     showCreateEntryModal(form);
   });
@@ -1017,11 +1076,6 @@ function escapeHtmlContent(text: string): string {
  * Monitorear formularios detectados
  */
 async function monitorForms(): Promise<void> {
-  const unlocked = await isVaultUnlocked();
-  if (!unlocked) {
-    return; // Solo funciona con vault desbloqueado
-  }
-
   const detected = detectForms();
 
   for (const { form, isSignup, ...rest } of detected) {

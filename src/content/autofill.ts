@@ -56,6 +56,12 @@ async function openUnlockPopup(): Promise<void> {
 function isFillableInput(el: EventTarget | null): el is HTMLInputElement {
   if (!(el instanceof HTMLInputElement)) return false;
   if (el.disabled || el.readOnly) return false;
+  // No mostrar autofill en inputs propios de G8keeper (modal de crear credencial).
+  if (el.closest("#g8keeper-create-modal")) return false;
+  if (el.id.startsWith("g8keeper-")) return false;
+  if (el.name.startsWith("g8keeper-")) return false;
+  if ("g8keeper" in el.dataset) return false;
+
   const type = (el.type || "text").toLowerCase();
   return type === "password" || type === "email" || type === "text";
 }

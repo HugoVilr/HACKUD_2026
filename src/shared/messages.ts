@@ -145,6 +145,10 @@ export interface RequestAutofillPayload {
   password: string;
 }
 
+export interface UiOpenPopupPayload {
+  source?: "signup";
+}
+
 export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
@@ -158,7 +162,7 @@ export interface MessagePayloadMap {
   ENTRY_UPDATE: EntryUpdatePayload;
   ENTRY_DELETE: EntryDeletePayload;
   AUTOFILL_QUERY_BY_DOMAIN: AutofillQueryByDomainPayload;
-  UI_OPEN_POPUP: undefined;
+  UI_OPEN_POPUP: UiOpenPopupPayload | undefined;
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
