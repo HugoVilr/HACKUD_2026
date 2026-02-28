@@ -877,6 +877,12 @@ root.addEventListener("submit", async (event) => {
         return;
       }
 
+      // Limpiar recovery codes al eliminar vault
+      state.recoveryCodes = null;
+      state.recoveryCodesAcknowledged = false;
+      state.recoveryCodesSaved = false;
+      await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+      
       state.showDeleteConfirm = false;
       await refreshStatus();
       setToast("Vault eliminado correctamente.", "success");
