@@ -1,44 +1,41 @@
 # G8keeper - Chrome Extension Password Manager
 
-Enterprise-grade password manager Chrome extension with military-grade encryption, zero-knowledge architecture, and quantum-resistant cryptography.
+Enterprise-grade password manager Chrome extension with military-grade encryption, zero-knowledge architecture, and maximum-security cryptographic hardening.
 
 **Built for HackUDC 2026** | Gradiant Security Challenge | Production-ready implementation
 
 ---
 
-## 🚀 NEW: Quantum Security MAX Branch
+## Security Architecture v2
 
-**Branch**: `quantum-security-max`
+G8keeper v2 pushes Web Crypto API to its absolute limit — every primitive is native, zero polyfills, zero WASM, zero simulations.
 
-G8keeper now features **MAXIMUM SECURITY MODE** with post-quantum cryptography! This experimental branch implements:
-
-- 🔐 **Hybrid KDF**: Argon2id + PBKDF2-SHA-512 (1M iter) + Scrypt + HKDF (4-layer key derivation)
-- 🛡️ **Triple Encryption**: AES-256-GCM + ChaCha20-Poly1305 + AES-256-GCM (cascading defense)
-- ⚛️ **Post-Quantum KEM**: Kyber-1024 simulation (256-bit quantum security)
-- 💾 **Memory-Hard**: 256 MB RAM requirement (anti-GPU/ASIC attacks)
-- ⏱️ **Constant-Time**: Side-channel attack protection
-- 🔒 **Enhanced Protections**: Rate limiting, audit logging, password strength enforcement
-
-**Performance**: 3-5x slower than standard vault (~2-5 seconds unlock time) but provides 1000x stronger protection against brute force attacks and resistance to future quantum computers.
-
-📖 **Documentation**: 
-- [Quantum Security Architecture](/docs/QUANTUM_SECURITY.md)
-- [Usage Examples](/docs/QUANTUM_USAGE_EXAMPLES.md)
+| Layer | Primitive | Parameters |
+|-------|-----------|------------|
+| **KDF** | PBKDF2-SHA-512 | 1 000 000 iterations, 256-bit salt |
+| **Key Expansion** | HKDF-SHA-512 | 3 purpose-bound keys (inner, outer, HMAC) |
+| **Encryption** | Double AES-256-GCM cascade | AAD metadata binding on inner layer |
+| **Integrity** | HMAC-SHA-512 | Verify-first (constant-time via `subtle.verify`) |
+| **Recovery** | PBKDF2-SHA-512 per code | Raw IKM encrypted, SHA-512 stored hashes |
+| **Rate Limiting** | Exponential backoff | 3 attempts → 60s lockout, 2^n delay |
 
 ---
 
 ## Technical Overview
 
-G8keeper is a browser-based password vault leveraging the Web Crypto API for client-side encryption. All cryptographic operations execute locally; no credentials or keys leave the device. The architecture implements defense-in-depth with multiple security layers: AES-256-GCM encryption, PBKDF2 key derivation (600k iterations), HKDF-SHA512 recovery codes, rate limiting, auto-lock, and origin-validated message passing.
+G8keeper is a browser-based password vault leveraging the Web Crypto API for client-side encryption. All cryptographic operations execute locally; no credentials or keys leave the device. The architecture implements defense-in-depth with multiple security layers: double AES-256-GCM cascade with AAD, PBKDF2-SHA-512 key derivation (1M iterations), HKDF-SHA-512 key expansion into purpose-bound keys, HMAC-SHA-512 integrity verification, rate limiting, auto-lock, and origin-validated message passing.
 
 ### Core Security Features
 
 - **Zero-knowledge architecture**: Master password never transmitted or stored
-- **AES-256-GCM encryption**: Authenticated encryption with 96-bit IVs
-- **PBKDF2-SHA256 KDF**: 600,000 iterations (OWASP 2023 recommendation)
-- **Recovery codes**: HKDF-SHA512 derivation, Base58 encoding, SHA-256 hashing, one-time use
+- **Double AES-256-GCM cascade**: Inner layer with AAD metadata binding + outer envelope layer
+- **PBKDF2-SHA-512 KDF**: 1,000,000 iterations with 256-bit salt
+- **HKDF-SHA-512 key expansion**: 3 independent keys (inner enc, outer enc, HMAC)
+- **HMAC-SHA-512 integrity**: Verify-first decryption (constant-time via Web Crypto)
+- **AAD metadata binding**: Version + KDF params bound to ciphertext (prevents downgrade)
+- **Recovery codes**: HKDF-SHA512 derivation, Base58 encoding, SHA-512 hashing, one-time use
 - **Auto-lock**: 5-minute inactivity timeout with session cleanup
-- **Rate limiting**: Exponential backoff on failed unlock attempts
+- **Rate limiting**: 3 attempts → 60s lockout, exponential backoff (2^n seconds)
 - **Origin validation**: Cryptographic sender verification in message router
 - **Content Security Policy**: Strict CSP in manifest v3
 - **HIBP integration**: K-anonymity breach checking (5-char SHA-1 prefix)
