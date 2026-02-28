@@ -220,6 +220,13 @@ const refreshStatus = async () => {
 
   state.vaultName = res.data?.vaultName || "";
 
+  // CRITICAL: Si hay recovery codes pendientes, NO cambiar route ni renderizar
+  // El usuario debe completar el flujo de recovery codes primero
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    // Solo actualizar vaultName, no cambiar route ni renderizar
+    return;
+  }
+
   if (!res.data?.hasVault) {
     setRoute("NO_VAULT");
     state.entries = [];
