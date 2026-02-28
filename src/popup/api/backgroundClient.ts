@@ -10,6 +10,7 @@ import {
   type RequestMessage,
   type ResponseFor,
   type VaultCreatePayload,
+  type VaultDeletePayload,
   type VaultUnlockPayload
 } from "../../shared/messages";
 
@@ -29,6 +30,9 @@ export const backgroundClient = {
     sendTypedMessage({ type: MESSAGE_TYPES.VAULT_UNLOCK, payload }),
 
   vaultLock: () => sendTypedMessage({ type: MESSAGE_TYPES.VAULT_LOCK }),
+
+  vaultDelete: (payload: VaultDeletePayload) =>
+    sendTypedMessage({ type: MESSAGE_TYPES.VAULT_DELETE, payload }),
 
   vaultStatus: () => sendTypedMessage({ type: MESSAGE_TYPES.VAULT_STATUS }),
 

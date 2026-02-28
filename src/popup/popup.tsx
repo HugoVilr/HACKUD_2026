@@ -9,7 +9,8 @@ const state = {
   selectedSecret: null,
   toastMessage: "",
   toastTone: "info",
-  entries: []
+  entries: [],
+  showDeleteConfirm: false
 };
 
 const root = document.getElementById("app");
@@ -223,6 +224,38 @@ const renderUnlock = () => {
 };
 
 const renderList = () => {
+  // Si está mostrando el formulario de confirmación de eliminación
+  if (state.showDeleteConfirm) {
+    return `
+      <div class="toolbar">
+        <h1>⚠️ Eliminar Vault</h1>
+        <button type="button" data-action="cancel-delete" class="primary">Cancelar</button>
+      </div>
+
+      <div class="stack">
+        <p class="muted" style="color: #d32f2f; font-weight: bold;">
+          ⚠️ ADVERTENCIA: Esta acción es IRREVERSIBLE. Se eliminarán todas tus contraseñas guardadas.
+        </p>
+        
+        <form data-action="confirm-delete" class="stack">
+          <label class="field">
+            <span>Master password</span>
+            <input name="master" type="password" required />
+          </label>
+          
+          <label class="field">
+            <span>Escribe "eliminar" para confirmar</span>
+            <input name="confirmText" type="text" required placeholder="eliminar" />
+          </label>
+          
+          <button class="primary" type="submit" style="background-color: #d32f2f;">
+            Eliminar Vault Permanentemente
+          </button>
+        </form>
+      </div>
+    `;
+  }
+
   const needle = state.search.trim().toLowerCase();
   const visibleEntries = state.entries.filter((entry) => {
     if (!needle) {
@@ -241,6 +274,7 @@ const renderList = () => {
       <div class="toolbar-actions">
         <button type="button" data-action="to-add" class="primary">+ Add</button>
         <button type="button" data-action="lock">Lock</button>
+        <button type="button" data-action="show-delete" style="background-color: #d32f2f;">Eliminar Vault</button>
       </div>
     </div>
 
@@ -574,6 +608,40 @@ root.addEventListener("submit", async (event) => {
     } catch (_error) {
       setToast("No se pudo guardar la entry.", "error");
     }
+    return;
+  }
+
+  if (action === "confirm-delete") {
+    const master = String(data.get("master") ?? "");
+    const confirmText = String(data.get("confirmText") ?? "").trim();
+
+    if (!master || !confirmText) {
+      setToast("Completa todos los campos.", "error");
+      return;
+    }
+
+    if (confirmText.toLowerCase() !== "eliminar") {
+      setToast("Debes escribir 'eliminar' exactamente para confirmar.", "error");
+      return;
+    }
+
+    try {
+      const res = await sendApiMessage("VAULT_DELETE", {
+        masterPassword: master,
+        confirmText: confirmText
+      });
+
+      if (!res.ok) {
+        setToast(res.error?.message || "No se pudo eliminar el vault.", "error");
+        return;
+      }
+
+      state.showDeleteConfirm = false;
+      await refreshStatus();
+      setToast("Vault eliminado correctamente.", "success");
+    } catch (_error) {
+      setToast("Error al eliminar el vault.", "error");
+    }
   }
 });
 
@@ -627,7 +695,27 @@ root.addEventListener("click", async (event) => {
   if (action === "to-list") {
     state.detailPasswordVisible = false;
     state.formPasswordVisible = false;
+    state.showDeleteConfirm = false;
     state.screen = "LIST";
+    render();
+    return;
+  }
+
+  if (action === "show-delete") {
+    const confirmed = window.confirm(
+      "⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE todas tus contraseñas.\n\n" +
+      "¿Estás seguro de que quieres continuar?"
+    );
+    if (!confirmed) {
+      return;
+    }
+    state.showDeleteConfirm = true;
+    render();
+    return;
+  }
+
+  if (action === "cancel-delete") {
+    state.showDeleteConfirm = false;
     render();
     return;
   }

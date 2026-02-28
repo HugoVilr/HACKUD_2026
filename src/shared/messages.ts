@@ -4,6 +4,7 @@ export const MESSAGE_TYPES = {
   VAULT_CREATE: "VAULT_CREATE",
   VAULT_UNLOCK: "VAULT_UNLOCK",
   VAULT_LOCK: "VAULT_LOCK",
+  VAULT_DELETE: "VAULT_DELETE",
   VAULT_STATUS: "VAULT_STATUS",
   ENTRY_LIST: "ENTRY_LIST",
   ENTRY_GET: "ENTRY_GET",
@@ -45,6 +46,11 @@ export interface VaultCreatePayload {
 
 export interface VaultUnlockPayload {
   masterPassword: string;
+}
+
+export interface VaultDeletePayload {
+  masterPassword: string;
+  confirmText: string;
 }
 
 export interface EntryListPayload {
@@ -98,6 +104,7 @@ export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
   VAULT_LOCK: undefined;
+  VAULT_DELETE: VaultDeletePayload;
   VAULT_STATUS: undefined;
   ENTRY_LIST: EntryListPayload | undefined;
   ENTRY_GET: EntryGetPayload;
@@ -120,6 +127,7 @@ export interface MessageResponseMap {
   VAULT_CREATE: ApiResult<VaultStatusData>;
   VAULT_UNLOCK: ApiResult<VaultStatusData>;
   VAULT_LOCK: ApiResult<VaultStatusData>;
+  VAULT_DELETE: ApiResult<{ deleted: boolean }>;
   VAULT_STATUS: ApiResult<VaultStatusData>;
   ENTRY_LIST: ApiResult<{ entries: VaultEntry[] }>;
   ENTRY_GET: ApiResult<{ entry: VaultEntry | null }>;
