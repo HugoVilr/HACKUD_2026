@@ -1,0 +1,15 @@
+{
+  "name": "chrome-extension-vault",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/background/sw.ts --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/background/sw.js && esbuild src/popup/popup.tsx --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/popup/popup.js",
+    "dev": "echo \"TODO: configure dev\"",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "tsx": "^4.19.2"
+  }
+}
