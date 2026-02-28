@@ -1,5 +1,5 @@
-import type { EncryptedVault } from "./types";
-import { isEncryptedVault } from "./guards";
+import type { EncryptedVault } from "./types.ts";
+import { isEncryptedVault } from "./guards.ts";
 
 const KEY = "hackudc.vault.encrypted.v1";
 

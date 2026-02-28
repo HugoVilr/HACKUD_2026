@@ -1,10 +1,17 @@
-import { generatePassword } from "../core/generator/generator";
-import { hibpCheck } from "../core/hibp/hibp";
-import { MSG, type ApiResponse } from "../shared/messages";
-import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault } from "../core/vault/storage";
-import { createEncryptedVault, reencryptVault, unlockEncryptedVault } from "../core/vault/crypto";
-import { deleteEntry, getEntrySecret, listPublicEntries, upsertEntry } from "../core/vault/entries";
-import type { EncryptedVault, VaultPlaintext } from "../core/vault/types";
+import { generatePassword } from "../core/generator/generator.ts";
+import { hibpCheck } from "../core/hibp/hibp.ts";
+import {
+  MESSAGE_TYPES,
+  type AnyRequestMessage,
+  type ApiResult,
+  type MessageType,
+  type MessageResponseMap,
+  type VaultStatusData
+} from "../shared/messages.ts";
+import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault } from "../core/vault/storage.ts";
+import { createEncryptedVault, reencryptVault, unlockEncryptedVault } from "../core/vault/crypto.ts";
+import { deleteEntry, entryPublicView, getEntrySecret, listPublicEntries, upsertEntry } from "../core/vault/entries.ts";
+import type { EncryptedVault, VaultPlaintext } from "../core/vault/types.ts";
 
 
 type Session = {
@@ -71,17 +78,19 @@ const session: Session = {
  * - VAULT_STATUS, GENERATE_PASSWORD, HIBP_CHECK no resetean el timer
  */
 const OPERATIONS_THAT_EXTEND_SESSION = new Set([
-  MSG.VAULT_UNLOCK,
-  MSG.ENTRY_LIST,
-  MSG.ENTRY_UPSERT,
-  MSG.ENTRY_DELETE,
-  MSG.ENTRY_GET_SECRET,
+  MESSAGE_TYPES.VAULT_UNLOCK,
+  MESSAGE_TYPES.ENTRY_LIST,
+  MESSAGE_TYPES.ENTRY_GET,
+  MESSAGE_TYPES.ENTRY_GET_SECRET,
+  MESSAGE_TYPES.ENTRY_ADD,
+  MESSAGE_TYPES.ENTRY_UPDATE,
+  MESSAGE_TYPES.ENTRY_DELETE,
 ]);
 
-function ok<T>(data: T): ApiResponse<T> {
+function ok<T>(data: T): ApiResult<T> {
   return { ok: true, data };
 }
-function err(code: any, message: string): ApiResponse<any> {
+function err(code: any, message: string): ApiResult<any> {
   return { ok: false, error: { code, message } };
 }
 
@@ -184,6 +193,14 @@ function requireUnlocked() {
   }
 }
 
+async function getVaultStatus(): Promise<VaultStatusData> {
+  const hasVault = await hasEncryptedVault();
+  const locked = !session.unlocked;
+  const vaultName = session.unlocked ? session.plaintext?.profile?.vaultName : undefined;
+  const entryCount = session.unlocked ? session.plaintext?.entries.length ?? 0 : 0;
+  return { hasVault, locked, vaultName, entryCount };
+}
+
 /**
  * SECURITY FIX #6: Validación de fortaleza de master password
  * 
@@ -230,22 +247,27 @@ function validateMasterStrength(pwd: string): { valid: boolean; reason?: string 
   return { valid: true };
 }
 
-export async function handleMessage(message: any): Promise<ApiResponse<any>> {
+export async function handleMessage(
+  message: AnyRequestMessage
+): Promise<MessageResponseMap[MessageType]> {
   try {
-    // Touch selectivo: solo operaciones sensibles extienden la sesión
-    if (OPERATIONS_THAT_EXTEND_SESSION.has(message?.type)) {
-      touch();
-    }
-
     switch (message?.type) {
-      case MSG.VAULT_STATUS: {
-        const hv = await hasEncryptedVault();
-        return ok({ hasVault: hv, locked: !session.unlocked });
+      case MESSAGE_TYPES.VAULT_STATUS: {
+        return ok(await getVaultStatus());
       }
 
-      case MSG.VAULT_CREATE: {
-        const master = String(message.master ?? "");
-        const vaultName = message.vaultName ? String(message.vaultName) : undefined;
+      case MESSAGE_TYPES.VAULT_CREATE: {
+        const master = String(message.payload.masterPassword ?? "");
+        const confirm = String(message.payload.confirmPassword ?? "");
+        const vaultName = message.payload.vaultName ? String(message.payload.vaultName) : undefined;
+
+        if (!master || !confirm) {
+          return err("VALIDATION_ERROR", "Master password and confirm password are required.");
+        }
+
+        if (master !== confirm) {
+          return err("MASTER_MISMATCH", "Master passwords do not match.");
+        }
         
         // Validación de fortaleza de master password
         const strength = validateMasterStrength(master);
@@ -284,12 +306,13 @@ export async function handleMessage(message: any): Promise<ApiResponse<any>> {
         session.key = key;
         session.plaintext = plaintext;
         session.encrypted = encrypted;
+        touch();
 
-        return ok({ created: true });
+        return ok(await getVaultStatus());
       }
 
-      case MSG.VAULT_UNLOCK: {
-        const master = String(message.master ?? "");
+      case MESSAGE_TYPES.VAULT_UNLOCK: {
+        const master = String(message.payload.masterPassword ?? "");
         
         // Rate limiting: verificar lockout
         if (Date.now() < unlockAttempts.lockedUntil) {
@@ -316,8 +339,9 @@ export async function handleMessage(message: any): Promise<ApiResponse<any>> {
           session.key = key;
           session.plaintext = plaintext;
           session.encrypted = enc;
+          touch();
           
-          return ok({ unlocked: true });
+          return ok(await getVaultStatus());
         } catch {
           lockNow();
           
@@ -338,21 +362,33 @@ export async function handleMessage(message: any): Promise<ApiResponse<any>> {
         }
       }
 
-      case MSG.VAULT_LOCK: {
+      case MESSAGE_TYPES.VAULT_LOCK: {
         lockNow();
-        return ok({ locked: true });
+        return ok(await getVaultStatus());
       }
 
-      case MSG.ENTRY_LIST: {
+      case MESSAGE_TYPES.ENTRY_LIST: {
         requireUnlocked();
+        touch();
         return ok({ entries: listPublicEntries(session.plaintext!) });
       }
 
-      case MSG.ENTRY_UPSERT: {
+      case MESSAGE_TYPES.ENTRY_GET: {
         requireUnlocked();
-        const entry = message.entry ?? {};
+        touch();
+        const id = String(message.payload.id ?? "");
+        const entry = session.plaintext!.entries.find((x) => x.id === id) ?? null;
+        return ok({ entry: entry ? entryPublicView(entry) : null });
+      }
+
+      case MESSAGE_TYPES.ENTRY_ADD: {
+        requireUnlocked();
+        touch();
+        const entry = message.payload.entry ?? ({} as any);
+        let savedId = "";
         try {
-          upsertEntry(session.plaintext!, entry);
+          const { id } = upsertEntry(session.plaintext!, entry);
+          savedId = id;
         } catch (e: any) {
           if (String(e?.message).startsWith("VALIDATION:")) return err("VALIDATION", "Datos inválidos (title requerido)");
           return err("VALIDATION", "Datos inválidos");
@@ -362,24 +398,52 @@ export async function handleMessage(message: any): Promise<ApiResponse<any>> {
         await saveEncryptedVault(newEnc);
         session.encrypted = newEnc;
 
-        return ok({ saved: true });
+        const saved = session.plaintext!.entries.find((x) => x.id === savedId) ?? null;
+        if (!saved) return err("INTERNAL", "Error guardando entry");
+        return ok({ entry: entryPublicView(saved) });
       }
 
-      case MSG.ENTRY_DELETE: {
+      case MESSAGE_TYPES.ENTRY_UPDATE: {
         requireUnlocked();
-        const id = String(message.id ?? "");
+        touch();
+        const entry = message.payload.entry ?? ({} as any);
+        const targetId = String(entry.id ?? "");
+        if (!targetId) return err("VALIDATION", "ID requerido para actualizar");
+        let savedId = targetId;
+        try {
+          const { id } = upsertEntry(session.plaintext!, entry);
+          savedId = id;
+        } catch (e: any) {
+          if (String(e?.message).startsWith("VALIDATION:")) return err("VALIDATION", "Datos inválidos (title requerido)");
+          return err("VALIDATION", "Datos inválidos");
+        }
+
+        const newEnc = await reencryptVault(session.key!, session.plaintext!, session.encrypted!);
+        await saveEncryptedVault(newEnc);
+        session.encrypted = newEnc;
+
+        const saved = session.plaintext!.entries.find((x) => x.id === savedId) ?? null;
+        if (!saved) return err("INTERNAL", "Error guardando entry");
+        return ok({ entry: entryPublicView(saved) });
+      }
+
+      case MESSAGE_TYPES.ENTRY_DELETE: {
+        requireUnlocked();
+        touch();
+        const id = String(message.payload.id ?? "");
         deleteEntry(session.plaintext!, id);
 
         const newEnc = await reencryptVault(session.key!, session.plaintext!, session.encrypted!);
         await saveEncryptedVault(newEnc);
         session.encrypted = newEnc;
 
-        return ok({ deleted: true });
+        return ok({ id });
       }
 
-      case MSG.ENTRY_GET_SECRET: {
+      case MESSAGE_TYPES.ENTRY_GET_SECRET: {
         requireUnlocked();
-        const id = String(message.id ?? "");
+        touch();
+        const id = String(message.payload.id ?? "");
         const sec = getEntrySecret(session.plaintext!, id);
         if (!sec) return err("NOT_FOUND", "Entry no encontrada");
         
@@ -416,14 +480,14 @@ export async function handleMessage(message: any): Promise<ApiResponse<any>> {
         return ok({ secret: sec });
       }
 
-      case MSG.GENERATE_PASSWORD: {
-        const cfg = message.config ?? { length: 16 };
+      case MESSAGE_TYPES.GENERATE_PASSWORD: {
+        const cfg = message.payload?.config ?? { length: 16 };
         const pwd = generatePassword(cfg);
         return ok({ password: pwd });
       }
 
-      case MSG.HIBP_CHECK: {
-        const password = String(message.password ?? "");
+      case MESSAGE_TYPES.HIBP_CHECK: {
+        const password = String(message.payload.password ?? "");
         if (!password) return err("VALIDATION", "Password vacío");
         try {
           const count = await hibpCheck(password);

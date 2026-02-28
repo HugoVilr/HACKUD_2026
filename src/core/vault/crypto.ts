@@ -1,7 +1,7 @@
-import type { EncryptedVault, VaultPlaintext } from "./types";
-import { b64ToAb, b64ToU8, abToB64, u8ToB64 } from "../../shared/b64";
-import { nowIso } from "../../shared/time";
-import { isVaultPlaintext } from "./guards";
+import type { EncryptedVault, VaultPlaintext } from "./types.ts";
+import { b64ToAb, b64ToU8, abToB64, u8ToB64 } from "../../shared/b64.ts";
+import { nowIso } from "../../shared/time.ts";
+import { isVaultPlaintext } from "./guards.ts";
 
 const te = new TextEncoder();
 const td = new TextDecoder();
