@@ -15,12 +15,12 @@ import {
 import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault, deleteEncryptedVault } from "../core/vault/storage.ts";
 import { createEncryptedVault, reencryptVault, unlockEncryptedVault, unlockWithRecoveryCode } from "../core/vault/crypto.ts";
 import { deleteEntry, entryPublicView, getEntrySecret, listPublicEntries, upsertEntry } from "../core/vault/entries.ts";
-import type { EncryptedVault, VaultPlaintext } from "../core/vault/types.ts";
+import type { EncryptedVault, VaultPlaintext, VaultKeyBundle } from "../core/vault/types.ts";
 
 
 type Session = {
   unlocked: boolean;
-  key: CryptoKey | null;
+  key: VaultKeyBundle | null;
   plaintext: VaultPlaintext | null;
   encrypted: EncryptedVault | null;
   autoLockMs: number;
@@ -959,13 +959,13 @@ export async function handleMessage(
          * RECOMENDACIÓN: Implementar como WARNING, no error bloqueante
          */
 
-        const { encrypted, key, plaintext, recoveryCodes } = await createEncryptedVault(master, vaultName);
+        const { encrypted, keys, plaintext, recoveryCodes } = await createEncryptedVault(master, vaultName);
         
         await saveEncryptedVault(encrypted);
 
         // dejamos sesión desbloqueada
         session.unlocked = true;
-        session.key = key;
+        session.key = keys;
         session.plaintext = plaintext;
         session.encrypted = encrypted;
         touch();
@@ -992,7 +992,7 @@ export async function handleMessage(
         if (!enc) return err("NO_VAULT", "No hay vault guardado");
 
         try {
-          const { key, plaintext } = await unlockEncryptedVault(enc, master);
+          const { keys, plaintext } = await unlockEncryptedVault(enc, master);
           
           // Unlock exitoso: resetear contador de intentos
           unlockAttempts.count = 0;
@@ -1000,7 +1000,7 @@ export async function handleMessage(
           unlockAttempts.lockedUntil = 0;
           
           session.unlocked = true;
-          session.key = key;
+          session.key = keys;
           session.plaintext = plaintext;
           session.encrypted = enc;
           touch();
@@ -1013,14 +1013,14 @@ export async function handleMessage(
           unlockAttempts.count++;
           unlockAttempts.lastAttempt = Date.now();
           
-          // Lockout después de 5 intentos fallidos
-          if (unlockAttempts.count >= 5) {
-            unlockAttempts.lockedUntil = Date.now() + 30_000; // 30 segundos
+          // Lockout después de 3 intentos fallidos (v2: más agresivo)
+          if (unlockAttempts.count >= 3) {
+            unlockAttempts.lockedUntil = Date.now() + 60_000; // 60 segundos
           }
           
-          // Delay progresivo (1s, 2s, 3s, 4s, 5s max)
-          const delaySec = Math.min(unlockAttempts.count, 5);
-          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          // Delay exponencial: 2^n seconds (2s, 4s, 8s, 16s ...)
+          const delayMs = Math.min(2 ** unlockAttempts.count * 1000, 30_000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
           
           return err("BAD_MASTER", "Master incorrecta o vault corrupto");
         }
@@ -1051,7 +1051,7 @@ export async function handleMessage(
         }
 
         try {
-          const { key, plaintext, codeIndex } = await unlockWithRecoveryCode(enc, recoveryCode);
+          const { keys, plaintext, codeIndex } = await unlockWithRecoveryCode(enc, recoveryCode);
           
           // Marcar el código como usado
           enc.recoveryCodes.used[codeIndex] = true;
@@ -1063,7 +1063,7 @@ export async function handleMessage(
           unlockAttempts.lockedUntil = 0;
           
           session.unlocked = true;
-          session.key = key;
+          session.key = keys;
           session.plaintext = plaintext;
           session.encrypted = enc;
           touch();
@@ -1077,14 +1077,14 @@ export async function handleMessage(
           unlockAttempts.count++;
           unlockAttempts.lastAttempt = Date.now();
           
-          // Lockout después de 5 intentos fallidos
-          if (unlockAttempts.count >= 5) {
-            unlockAttempts.lockedUntil = Date.now() + 30_000; // 30 segundos
+          // Lockout después de 3 intentos fallidos (v2: más agresivo)
+          if (unlockAttempts.count >= 3) {
+            unlockAttempts.lockedUntil = Date.now() + 60_000; // 60 segundos
           }
           
-          // Delay progresivo
-          const delaySec = Math.min(unlockAttempts.count, 5);
-          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          // Delay exponencial: 2^n seconds
+          const delaySec = Math.min(2 ** unlockAttempts.count * 1000, 30_000);
+          await new Promise(resolve => setTimeout(resolve, delaySec));
           
           // Mensajes de error específicos
           if (error.message === "Recovery code already used") {

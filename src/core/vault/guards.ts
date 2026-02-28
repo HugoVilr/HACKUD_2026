@@ -5,20 +5,22 @@ const isStr = (x: unknown): x is string => typeof x === "string";
 
 export function isEncryptedVault(x: unknown): x is EncryptedVault {
   if (!isObj(x)) return false;
-  if (x.version !== 1) return false;
+  if (x.version !== 2) return false;
   if (!isStr(x.createdAt) || !isStr(x.updatedAt)) return false;
   if (!isObj(x.kdf) || !isObj(x.cipher)) return false;
 
   const kdf = x.kdf as Record<string, unknown>;
   const cipher = x.cipher as Record<string, unknown>;
 
-  if (kdf.kind !== "pbkdf2-sha256") return false;
+  if (kdf.kind !== "pbkdf2-sha512") return false;
   if (!isStr(kdf.salt_b64) || typeof kdf.iterations !== "number") return false;
 
-  if (cipher.kind !== "aes-256-gcm") return false;
-  if (!isStr(cipher.iv_b64)) return false;
+  if (cipher.kind !== "aes-256-gcm-double") return false;
+  if (!isStr(cipher.iv_inner_b64)) return false;
+  if (!isStr(cipher.iv_outer_b64)) return false;
 
   if (!isStr((x as any).ciphertext_b64)) return false;
+  if (!isStr((x as any).hmac_b64)) return false;
   return true;
 }
 
@@ -37,7 +39,7 @@ export function isVaultEntry(x: unknown): x is VaultEntry {
 
 export function isVaultPlaintext(x: unknown): x is VaultPlaintext {
   if (!isObj(x)) return false;
-  if (x.version !== 1) return false;
+  if (x.version !== 2) return false;
   if (!Array.isArray((x as any).entries)) return false;
   if (!(x as any).entries.every(isVaultEntry)) return false;
   return true;
