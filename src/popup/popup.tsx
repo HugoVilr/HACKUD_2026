@@ -566,6 +566,12 @@ const renderUnlocked = () => {
 };
 
 const routeBody = () => {
+  // PRIORIDAD: Si hay recovery codes pendientes, mostrarlos SIEMPRE
+  // independientemente del estado del vault
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    return renderCreateVault();
+  }
+  
   switch (state.route) {
     case "NO_VAULT":
       return renderCreateVault();
