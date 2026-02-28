@@ -37,7 +37,27 @@ async function deriveKeyPBKDF2(master: string, salt: Uint8Array, iterations: num
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     baseKey,
     { name: "AES-GCM", length: 256 },
-    false,
+    false, // No extractable por defecto (más seguro)
+    ["encrypt", "decrypt"]
+  );
+}
+
+/**
+ * Deriva una clave PBKDF2 EXTRACTABLE
+ * Solo usar cuando se necesita exportar la clave (ej: recovery codes)
+ * 
+ * NOTA DE SEGURIDAD:
+ * - Las claves extractables pueden ser exportadas con exportKey()
+ * - Solo se usa al crear vault para cifrar con recovery codes
+ * - La clave exportada se cifra inmediatamente con cada recovery code
+ */
+async function deriveKeyPBKDF2Extractable(master: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+  const baseKey = await crypto.subtle.importKey("raw", te.encode(master), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    true, // EXTRACTABLE - permite exportKey()
     ["encrypt", "decrypt"]
   );
 }
@@ -102,9 +122,10 @@ export async function createEncryptedVault(master: string, vaultName?: string) {
     console.log('[createEncryptedVault] Generated salt');
     
     const iterations = DEFAULT_ITERS;
-    console.log('[createEncryptedVault] Deriving key with', iterations, 'iterations');
-    const key = await deriveKeyPBKDF2(master, salt, iterations);
-    console.log('[createEncryptedVault] Key derived successfully');
+    console.log('[createEncryptedVault] Deriving EXTRACTABLE key with', iterations, 'iterations');
+    // Usar versión extractable para poder exportar la clave y cifrarla con recovery codes
+    const key = await deriveKeyPBKDF2Extractable(master, salt, iterations);
+    console.log('[createEncryptedVault] Key derived successfully (extractable)');
 
     const plaintext = createEmptyPlaintext(vaultName);
     console.log('[createEncryptedVault] Created plaintext structure');
