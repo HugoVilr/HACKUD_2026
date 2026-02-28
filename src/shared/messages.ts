@@ -3,6 +3,7 @@ import type { VaultEntry } from "../core/vault/types.ts";
 export const MESSAGE_TYPES = {
   VAULT_CREATE: "VAULT_CREATE",
   VAULT_UNLOCK: "VAULT_UNLOCK",
+  VAULT_UNLOCK_RECOVERY: "VAULT_UNLOCK_RECOVERY",
   VAULT_LOCK: "VAULT_LOCK",
   VAULT_DELETE: "VAULT_DELETE",
   VAULT_STATUS: "VAULT_STATUS",
@@ -40,6 +41,10 @@ export const MESSAGE_TYPES = {
    * Enviado desde popup a background después de crear entrada
    */
   REQUEST_AUTOFILL: "REQUEST_AUTOFILL",
+  /**
+   * RECOVERY CODES: Exportar códigos de recuperación a archivo .txt
+   */
+  EXPORT_RECOVERY_CODES: "EXPORT_RECOVERY_CODES",
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
@@ -67,6 +72,15 @@ export interface VaultCreatePayload {
 
 export interface VaultUnlockPayload {
   masterPassword: string;
+}
+
+export interface VaultUnlockRecoveryPayload {
+  recoveryCode: string;
+}
+
+export interface ExportRecoveryCodesPayload {
+  codes: string[];
+  vaultName?: string;
 }
 
 export interface VaultDeletePayload {
@@ -202,6 +216,7 @@ export interface UiOpenPopupPayload {
 export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
+  VAULT_UNLOCK_RECOVERY: VaultUnlockRecoveryPayload;
   VAULT_LOCK: undefined;
   VAULT_DELETE: VaultDeletePayload;
   VAULT_STATUS: undefined;
@@ -222,6 +237,7 @@ export interface MessagePayloadMap {
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
   AUTOFILL_CREDENTIALS: AutofillCredentialsPayload;
   REQUEST_AUTOFILL: RequestAutofillPayload;
+  EXPORT_RECOVERY_CODES: ExportRecoveryCodesPayload;
 }
 
 export interface VaultStatusData {
@@ -229,11 +245,13 @@ export interface VaultStatusData {
   locked: boolean;
   vaultName?: string;
   entryCount: number;
+  recoveryCodes?: string[]; // Solo presente en respuesta a VAULT_CREATE
 }
 
 export interface MessageResponseMap {
   VAULT_CREATE: ApiResult<VaultStatusData>;
   VAULT_UNLOCK: ApiResult<VaultStatusData>;
+  VAULT_UNLOCK_RECOVERY: ApiResult<VaultStatusData & { usedCodeIndex: number }>;
   VAULT_LOCK: ApiResult<VaultStatusData>;
   VAULT_DELETE: ApiResult<{ deleted: boolean }>;
   VAULT_STATUS: ApiResult<VaultStatusData>;
@@ -254,6 +272,7 @@ export interface MessageResponseMap {
   OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;
   AUTOFILL_CREDENTIALS: ApiResult<{ filled: boolean }>;
   REQUEST_AUTOFILL: ApiResult<{ sent: boolean }>;
+  EXPORT_RECOVERY_CODES: ApiResult<{ blob: string; filename: string }>;
 }
 
 export type PayloadFor<TType extends MessageType> = MessagePayloadMap[TType];

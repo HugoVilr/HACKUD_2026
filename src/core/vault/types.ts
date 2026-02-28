@@ -21,6 +21,18 @@ export interface EncryptedVault {
   };
 
   ciphertext_b64: string;
+
+  // Recovery codes (opcional para backwards compatibility)
+  recoveryCodes?: {
+    hashes: string[]; // SHA-256 hashes de los códigos (base64)
+    used: boolean[];  // Marcadores de uso (cada código se usa solo una vez)
+    // Master key cifrada con cada recovery code (permite recuperar acceso)
+    encryptedKeys: Array<{
+      salt_b64: string;
+      iv_b64: string;
+      ciphertext_b64: string;
+    }>;
+  };
 }
 
 export interface VaultEntry {
