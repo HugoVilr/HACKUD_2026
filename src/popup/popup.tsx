@@ -614,6 +614,18 @@ root.addEventListener("submit", async (event) => {
       }
 
       setToast("Entry creada.", "success");
+      
+      // Intentar autofill en la pestaña activa si hay un formulario
+      try {
+        await sendApiMessage("REQUEST_AUTOFILL", {
+          username: username || "",
+          password
+        });
+      } catch (e) {
+        // Silenciar error si no hay content script o formulario
+        console.debug('[G8keeper] Autofill not available:', e);
+      }
+      
       render();
     } catch (_error) {
       setToast("No se pudo guardar la entry.", "error");

@@ -9,13 +9,21 @@
     "service_worker": "src/background/sw.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/autofill.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.pwnedpasswords.com/*"],
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://api.pwnedpasswords.com/*", "<all_urls>"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none';"
   }

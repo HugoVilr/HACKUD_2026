@@ -16,14 +16,25 @@ import { handleMessage } from "./session.ts";
  * 
  * SOLUCIÓN IMPLEMENTADA:
  * - Validar que sender.id coincide con chrome.runtime.id (misma extensión)
- * - Rechazar mensajes desde content scripts (sender.tab presente)
+ * - Whitelist de mensajes seguros desde content scripts (solo lectura)
+ * - Rechazar operaciones sensibles (escritura/modificación) desde content scripts
  * - Retornar error FORBIDDEN inmediatamente si validación falla
  * 
  * PROTECCIÓN:
- * - Solo el popup y otras páginas de la extensión pueden comunicarse
- * - Content scripts en páginas web: bloqueados
+ * - Popup y páginas de extensión: acceso completo
+ * - Content scripts: solo VAULT_STATUS y OPEN_POPUP_FOR_SIGNUP (read-only)
  * - Otras extensiones: bloqueadas
  */
+
+// Mensajes que content scripts pueden enviar (whitelist)
+// SECURITY: Aunque algunos son de escritura, requieren vault desbloqueado + confirmación usuario
+const CONTENT_SCRIPT_ALLOWED_MESSAGES = [
+  'VAULT_STATUS',           // Solo lectura - verificar si vault desbloqueado
+  'OPEN_POPUP_FOR_SIGNUP',  // Solo sugerencia - no modifica datos
+  'GENERATE_PASSWORD',      // Generación de password - necesario para modal in-page
+  'ENTRY_ADD'               // Crear entrada - con confirmación explícita del usuario
+] as const;
+
 chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendResponse) => {
   // Validar que el mensaje viene de la propia extensión
   if (!sender.id || sender.id !== chrome.runtime.id) {
@@ -37,16 +48,21 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     return true;
   }
 
-  // Rechazar mensajes desde content scripts (tabs/páginas web)
+  // Si viene de content script, validar whitelist
   if (sender.tab) {
-    sendResponse({ 
-      ok: false, 
-      error: { 
-        code: "FORBIDDEN", 
-        message: "Content scripts are not allowed to communicate with vault" 
-      } 
-    });
-    return true;
+    const isAllowed = CONTENT_SCRIPT_ALLOWED_MESSAGES.includes(message.type as any);
+    
+    if (!isAllowed) {
+      console.warn('[G8keeper] Content script attempted forbidden message:', message.type);
+      sendResponse({ 
+        ok: false, 
+        error: { 
+          code: "FORBIDDEN", 
+          message: "Content scripts can only send VAULT_STATUS or OPEN_POPUP_FOR_SIGNUP" 
+        } 
+      });
+      return true;
+    }
   }
 
   handleMessage(message)
