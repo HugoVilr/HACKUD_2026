@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo \"TODO: configure build\"",
-    "dev": "echo \"TODO: configure dev\""
+    "build": "esbuild src/background/sw.ts --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/background/sw.js",
+    "dev": "echo \"TODO: configure dev\"",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }

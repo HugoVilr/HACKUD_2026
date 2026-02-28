@@ -1,4 +1,4 @@
-import type { EncryptedVault, VaultPlaintext, VaultEntry } from "./types";
+import type { EncryptedVault, VaultPlaintext, VaultEntry } from "./types.ts";
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
 const isStr = (x: unknown): x is string => typeof x === "string";

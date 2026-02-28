@@ -4,14 +4,17 @@ import {
   type EntryAddPayload,
   type EntryDeletePayload,
   type EntryGetPayload,
+  type EntryGetSecretPayload,
   type EntryListPayload,
   type EntryUpdatePayload,
+  type GeneratePasswordPayload,
+  type HibpCheckPayload,
   type MessageType,
   type RequestMessage,
   type ResponseFor,
   type VaultCreatePayload,
   type VaultUnlockPayload
-} from "../../shared/messages";
+} from "../../shared/messages.ts";
 
 const sendTypedMessage = <TType extends MessageType>(
   message: RequestMessage<TType>
@@ -38,6 +41,9 @@ export const backgroundClient = {
   entryGet: (payload: EntryGetPayload) =>
     sendTypedMessage({ type: MESSAGE_TYPES.ENTRY_GET, payload }),
 
+  entryGetSecret: (payload: EntryGetSecretPayload) =>
+    sendTypedMessage({ type: MESSAGE_TYPES.ENTRY_GET_SECRET, payload }),
+
   entryAdd: (payload: EntryAddPayload) =>
     sendTypedMessage({ type: MESSAGE_TYPES.ENTRY_ADD, payload }),
 
@@ -45,5 +51,12 @@ export const backgroundClient = {
     sendTypedMessage({ type: MESSAGE_TYPES.ENTRY_UPDATE, payload }),
 
   entryDelete: (payload: EntryDeletePayload) =>
-    sendTypedMessage({ type: MESSAGE_TYPES.ENTRY_DELETE, payload })
+    sendTypedMessage({ type: MESSAGE_TYPES.ENTRY_DELETE, payload }),
+
+  generatePassword: (payload: GeneratePasswordPayload) =>
+    sendTypedMessage({ type: MESSAGE_TYPES.GENERATE_PASSWORD, payload }),
+
+  // HIBP check is executed in background to keep network access/permissions centralized.
+  hibpCheck: (payload: HibpCheckPayload) =>
+    sendTypedMessage({ type: MESSAGE_TYPES.HIBP_CHECK, payload })
 };

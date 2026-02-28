@@ -2,6 +2,22 @@ function toHex(u8: Uint8Array): string {
   return [...u8].map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
 }
 
+export function parseHibpRangeResponse(text: string, suffixUpper: string): number {
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const [hashSuffix, countStr] = trimmed.split(":");
+    if (hashSuffix?.toUpperCase() === suffixUpper) {
+      const count = Number(countStr);
+      return Number.isFinite(count) ? count : 0;
+    }
+  }
+
+  return 0;
+}
+
 /**
  * SECURITY FIX #10: HIBP timeout y manejo de errores robusto
  * 
@@ -67,20 +83,7 @@ export async function hibpCheck(password: string): Promise<number> {
     
     // Formato de respuesta: SUFFIX:COUNT (una por línea)
     // Con Add-Padding, HIBP añade líneas dummy para ofuscar el tamaño real
-    const lines = text.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      
-      const [hashSuffix, countStr] = trimmed.split(":");
-      if (hashSuffix?.toUpperCase() === suffix) {
-        const count = Number(countStr);
-        return Number.isFinite(count) ? count : 0;
-      }
-    }
-    
-    // No encontrado = 0 filtraciones (password no conocida públicamente)
-    return 0;
+    return parseHibpRangeResponse(text, suffix);
     
   } catch (e: any) {
     clearTimeout(timeoutId);
