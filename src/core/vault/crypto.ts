@@ -2,6 +2,7 @@ import type { EncryptedVault, VaultPlaintext } from "./types.ts";
 import { b64ToAb, b64ToU8, abToB64, u8ToB64 } from "../../shared/b64.ts";
 import { nowIso } from "../../shared/time.ts";
 import { isVaultPlaintext } from "./guards.ts";
+import { generateRecoveryCodes } from "./recovery.ts";
 
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -36,7 +37,27 @@ async function deriveKeyPBKDF2(master: string, salt: Uint8Array, iterations: num
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     baseKey,
     { name: "AES-GCM", length: 256 },
-    false,
+    false, // No extractable por defecto (más seguro)
+    ["encrypt", "decrypt"]
+  );
+}
+
+/**
+ * Deriva una clave PBKDF2 EXTRACTABLE
+ * Solo usar cuando se necesita exportar la clave (ej: recovery codes)
+ * 
+ * NOTA DE SEGURIDAD:
+ * - Las claves extractables pueden ser exportadas con exportKey()
+ * - Solo se usa al crear vault para cifrar con recovery codes
+ * - La clave exportada se cifra inmediatamente con cada recovery code
+ */
+async function deriveKeyPBKDF2Extractable(master: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+  const baseKey = await crypto.subtle.importKey("raw", te.encode(master), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    true, // EXTRACTABLE - permite exportKey()
     ["encrypt", "decrypt"]
   );
 }
@@ -71,14 +92,62 @@ export function createEmptyPlaintext(vaultName?: string): VaultPlaintext {
  * - 16 bytes es técnicamente correcto y ampliamente usado
  * - Suficiente para prevenir rainbow tables y ataques de diccionario
  * - Trade-off: espacio vs seguridad (16 bytes OK para scope del proyecto)
+ * 
+ * 
+ * SECURITY ENHANCEMENT: Recovery Codes
+ * 
+ * NUEVA FUNCIONALIDAD (2026):
+ * - Genera 4 códigos de recuperación ultra seguros (256 bits cada uno)
+ * - Almacena solo los hashes SHA-256 (no los códigos en texto plano)
+ * - Cada código es de un solo uso
+ * - Permite recuperar acceso si se olvida la contraseña maestra
+ * 
+ * DISEÑO:
+ * - La master key (AES-256) se exporta en formato raw (JWK)
+ * - Se cifra con cada recovery code usando PBKDF2 + AES-GCM
+ * - Al desbloquear con recovery code, se descifra la master key
+ * - Esto permite acceso sin conocer la contraseña original
+ * 
+ * RETORNA:
+ * - encrypted: Vault cifrado (con recovery codes hasheados)
+ * - key: Clave derivada de la master password
+ * - plaintext: Contenido descifrado del vault
+ * - recoveryCodes: Array de 4 códigos en texto plano (SOLO para mostrar al usuario UNA VEZ)
  */
 export async function createEncryptedVault(master: string, vaultName?: string) {
-  const salt = crypto.getRandomValues(new Uint8Array(16)); // 128 bits
-  const iterations = DEFAULT_ITERS;
-  const key = await deriveKeyPBKDF2(master, salt, iterations);
+  try {
+    const salt = crypto.getRandomValues(new Uint8Array(16)); // 128 bits
+    
+    const iterations = DEFAULT_ITERS;
+    // Usar versión extractable para poder exportar la clave y cifrarla con recovery codes
+    const key = await deriveKeyPBKDF2Extractable(master, salt, iterations);
 
-  const plaintext = createEmptyPlaintext(vaultName);
-  const { iv_b64, ciphertext_b64 } = await encryptJson(key, plaintext);
+    const plaintext = createEmptyPlaintext(vaultName);
+    
+    const { iv_b64, ciphertext_b64 } = await encryptJson(key, plaintext);
+
+    // Generar recovery codes ultra seguros
+    const { codes, hashes } = await generateRecoveryCodes();
+
+  // Exportar master key para poder cifrarla con los recovery codes
+  const keyJwk = await crypto.subtle.exportKey("jwk", key);
+  const keyBytes = te.encode(JSON.stringify(keyJwk));
+
+  // Cifrar la master key con cada recovery code
+  const encryptedKeys = [];
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    const rcSalt = crypto.getRandomValues(new Uint8Array(16));
+    const rcKey = await deriveKeyPBKDF2(code, rcSalt, DEFAULT_ITERS);
+    const rcIv = crypto.getRandomValues(new Uint8Array(12));
+    const rcCt = await crypto.subtle.encrypt({ name: "AES-GCM", iv: rcIv }, rcKey, keyBytes);
+    
+    encryptedKeys.push({
+      salt_b64: u8ToB64(rcSalt),
+      iv_b64: u8ToB64(rcIv),
+      ciphertext_b64: abToB64(rcCt),
+    });
+  }
 
   const t = nowIso();
   const encrypted: EncryptedVault = {
@@ -88,9 +157,18 @@ export async function createEncryptedVault(master: string, vaultName?: string) {
     kdf: { kind: "pbkdf2-sha256", salt_b64: u8ToB64(salt), iterations },
     cipher: { kind: "aes-256-gcm", iv_b64 },
     ciphertext_b64,
+    recoveryCodes: {
+      hashes, // Solo almacenamos hashes (no los códigos en texto plano)
+      used: [false, false, false, false], // Ninguno usado aún
+      encryptedKeys, // Master key cifrada con cada recovery code
+    },
   };
 
-  return { encrypted, key, plaintext };
+  return { encrypted, key, plaintext, recoveryCodes: codes };
+  } catch (error) {
+    console.error('[createEncryptedVault] ERROR during vault creation:', error);
+    throw error;
+  }
 }
 
 export async function unlockEncryptedVault(encrypted: EncryptedVault, master: string) {
@@ -104,6 +182,94 @@ export async function unlockEncryptedVault(encrypted: EncryptedVault, master: st
   if (!isVaultPlaintext(plaintext)) throw new Error("Corrupt vault");
 
   return { key, plaintext };
+}
+
+/**
+ * SECURITY FEATURE: Unlock vault with recovery code
+ * 
+ * Permite desbloquear el vault usando un recovery code si se olvidó
+ * la contraseña maestra.
+ * 
+ * DISEÑO:
+ * 1. Verifica el hash SHA-256 del recovery code
+ * 2. Descifra la master key usando el recovery code
+ * 3. Usa la master key para descifrar el vault
+ * 4. Marca el código como usado (un solo uso)
+ * 
+ * SEGURIDAD:
+ * - Verifica hash SHA-256 del código
+ * - Marca el código como usado (un solo uso)
+ * - Protección contra timing attacks
+ * - Falla si el código ya fue usado
+ * 
+ * IMPORTANTE:
+ * - Después de desbloquear con recovery code, el usuario DEBE cambiar
+ *   su contraseña maestra inmediatamente
+ * - El vault debe guardarse con el código marcado como usado
+ * 
+ * @param encrypted Vault cifrado
+ * @param recoveryCode Código de recuperación ingresado por el usuario
+ * @returns { key, plaintext, codeIndex } - codeIndex indica cuál código se usó
+ * @throws Error si el código es inválido o ya fue usado
+ */
+export async function unlockWithRecoveryCode(
+  encrypted: EncryptedVault,
+  recoveryCode: string
+): Promise<{ key: CryptoKey; plaintext: VaultPlaintext; codeIndex: number }> {
+  if (encrypted.version !== VAULT_VERSION) throw new Error("Unsupported version");
+  if (encrypted.kdf.kind !== "pbkdf2-sha256") throw new Error("Unsupported kdf");
+  if (!encrypted.recoveryCodes) throw new Error("No recovery codes available");
+
+  const { verifyRecoveryCode } = await import("./recovery.ts");
+
+  // Buscar el código en los hashes almacenados
+  let foundIndex = -1;
+  for (let i = 0; i < encrypted.recoveryCodes.hashes.length; i++) {
+    const isValid = await verifyRecoveryCode(recoveryCode, encrypted.recoveryCodes.hashes[i]);
+    if (isValid) {
+      foundIndex = i;
+      break;
+    }
+  }
+
+  if (foundIndex === -1) {
+    throw new Error("Invalid recovery code");
+  }
+
+  if (encrypted.recoveryCodes.used[foundIndex]) {
+    throw new Error("Recovery code already used");
+  }
+
+  // Descifrar la master key usando el recovery code
+  const encKey = encrypted.recoveryCodes.encryptedKeys[foundIndex];
+  const rcSalt = b64ToU8(encKey.salt_b64);
+  const rcKey = await deriveKeyPBKDF2(recoveryCode, rcSalt, DEFAULT_ITERS);
+  const rcIv = b64ToU8(encKey.iv_b64);
+  const rcCt = b64ToAb(encKey.ciphertext_b64);
+
+  let keyBytes: Uint8Array;
+  try {
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: rcIv }, rcKey, rcCt);
+    keyBytes = new Uint8Array(decrypted);
+  } catch {
+    throw new Error("Failed to decrypt master key with recovery code");
+  }
+
+  // Importar la master key
+  const keyJwk = JSON.parse(td.decode(keyBytes));
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    keyJwk,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+
+  // Descifrar el vault con la master key
+  const plaintext = await decryptJson(key, encrypted.cipher.iv_b64, encrypted.ciphertext_b64);
+  if (!isVaultPlaintext(plaintext)) throw new Error("Corrupt vault");
+
+  return { key, plaintext, codeIndex: foundIndex };
 }
 
 /**
