@@ -14,10 +14,12 @@ const state = {
   showDeleteConfirm: false,
   recoveryCodes: null, // Códigos de recuperación (solo después de crear vault)
   recoveryCodesAcknowledged: false,
+  recoveryCodesSaved: false, // Se marca true cuando el usuario copia o exporta los códigos
   showRecoveryCodeUnlock: false // Mostrar opción de desbloqueo con recovery code
 };
 
 const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+const RECOVERY_CODES_KEY = "g8keeper_recovery_codes_context";
 
 const root = document.getElementById("app");
 if (!root) {
@@ -165,6 +167,40 @@ const consumeSignupUnlockContext = async () => {
   }
 };
 
+// Guardar estado de recovery codes para que persista entre aperturas del popup
+const saveRecoveryCodesContext = async () => {
+  if (!state.recoveryCodes || state.recoveryCodes.length === 0) {
+    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
+    return;
+  }
+  await chrome.storage.session.set({
+    [RECOVERY_CODES_KEY]: {
+      codes: state.recoveryCodes,
+      acknowledged: state.recoveryCodesAcknowledged,
+      saved: state.recoveryCodesSaved,
+      vaultName: state.vaultName
+    }
+  });
+};
+
+// Restaurar estado de recovery codes al abrir popup
+const restoreRecoveryCodesContext = async () => {
+  try {
+    const data = await chrome.storage.session.get(RECOVERY_CODES_KEY);
+    const context = data?.[RECOVERY_CODES_KEY];
+    if (context && Array.isArray(context.codes) && context.codes.length > 0) {
+      state.recoveryCodes = context.codes;
+      state.recoveryCodesAcknowledged = Boolean(context.acknowledged);
+      state.recoveryCodesSaved = Boolean(context.saved);
+      if (context.vaultName) {
+        state.vaultName = context.vaultName;
+      }
+    }
+  } catch (err) {
+    console.error('[restoreRecoveryCodesContext] Error:', err);
+  }
+};
+
 const refreshEntries = async () => {
   const res = await sendApiMessage("ENTRY_LIST");
   if (!res.ok) {
@@ -274,7 +310,7 @@ const renderCreateVault = () => {
             type="button" 
             data-action="done-recovery-codes" 
             class="primary" 
-            ${!state.recoveryCodesAcknowledged ? 'disabled' : ''}
+            ${!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged ? 'disabled' : ''}
           >
             Continuar
           </button>
@@ -961,6 +997,7 @@ root.addEventListener("click", async (event) => {
 
   if (action === "toggle-recovery-ack") {
     state.recoveryCodesAcknowledged = !state.recoveryCodesAcknowledged;
+    await saveRecoveryCodesContext();
     render();
     return;
   }
@@ -970,6 +1007,8 @@ root.addEventListener("click", async (event) => {
     const text = state.recoveryCodes.map((code, i) => `${i + 1}. ${code}`).join("\n");
     try {
       await copyText(text);
+      state.recoveryCodesSaved = true;
+      await saveRecoveryCodesContext();
       setToast("Códigos copiados al portapapeles", "success");
     } catch {
       setToast("No se pudo copiar", "error");
@@ -998,6 +1037,8 @@ root.addEventListener("click", async (event) => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      state.recoveryCodesSaved = true;
+      await saveRecoveryCodesContext();
       setToast("Códigos exportados", "success");
     } catch {
       setToast("Error al exportar", "error");
@@ -1006,9 +1047,11 @@ root.addEventListener("click", async (event) => {
   }
 
   if (action === "done-recovery-codes") {
-    if (!state.recoveryCodesAcknowledged) return;
+    if (!state.recoveryCodesSaved || !state.recoveryCodesAcknowledged) return;
     state.recoveryCodes = null;
     state.recoveryCodesAcknowledged = false;
+    state.recoveryCodesSaved = false;
+    await chrome.storage.session.remove(RECOVERY_CODES_KEY);
     await refreshStatus();
     setToast("Vault creado exitosamente", "success");
     return;
@@ -1088,5 +1131,8 @@ root.addEventListener("click", async (event) => {
   }
 });
 
-render();
-void refreshStatus();
+// Restaurar recovery codes si existen antes de renderizar
+void restoreRecoveryCodesContext().then(() => {
+  render();
+  void refreshStatus();
+});

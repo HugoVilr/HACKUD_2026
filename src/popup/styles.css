@@ -204,6 +204,19 @@ button.primary:hover {
   background: rgba(154, 248, 157, 0.28);
 }
 
+button[disabled], button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(154, 248, 157, 0.04) !important;
+  border-color: rgba(206, 252, 205, 0.2) !important;
+  color: rgba(154, 248, 157, 0.5) !important;
+}
+
+button[disabled]:hover, button:disabled:hover {
+  background: rgba(154, 248, 157, 0.04) !important;
+  transform: none;
+}
+
 .caution-button {
   background: linear-gradient(180deg, rgba(154, 248, 157, 0.1) 0%, rgba(111, 42, 42, 0.38) 100%);
   border-color: rgba(255, 127, 127, 0.42);
