@@ -6,42 +6,53 @@ Feature que detecta automáticamente formularios de registro y login en páginas
 
 ## ✨ Funcionalidades
 
-### 1. **Detección Proactiva de Signup**
+### 1. **Detección Proactiva de Signup con Modal In-Page**
 Cuando el usuario visita una página con un formulario de registro:
 
 **Comportamiento:**
 - ✅ Detecta automáticamente formularios de signup
 - ✅ Verifica que el vault esté desbloqueado
-- ✅ Muestra notification sugiriendo crear desde vault
-- ✅ Si usuario acepta → abre popup para generar contraseña segura
+- ✅ Muestra notification azul sugiriendo crear desde vault
+- ✅ Si usuario acepta → abre **modal dentro de la página** (no popup extensión)
+- ✅ Modal pre-rellena título y username del formulario
+- ✅ Genera contraseña segura automáticamente (20 caracteres)
+- ✅ Al guardar → autorellena TODOS los campos del formulario
+- ✅ Usuario solo hace click en "Enviar" para crear cuenta
+
+**Flujo Natural:**
+```
+1. Usuario en página de registro (ej: PCComponentes, Casa del Libro)
+2. Aparece notificación azul: "🔐 ¿Crear contraseña segura?"
+3. Click en "Abrir Vault"
+4. Modal se abre EN LA MISMA PÁGINA (sin cambiar de pestaña)
+5. Contraseña ya generada automáticamente
+6. Usuario revisa/edita username si necesario
+7. Click en "Guardar y Usar"
+8. Formulario se autorellena con credenciales seguras
+9. Usuario hace click en botón de registro de la web
+10. ¡Cuenta creada con contraseña segura!
+```
 
 **Heurísticas de detección de signup:**
 - Campo "confirm password" (soporta: confirm, repeat, repetir, confirmar)
 - Búsqueda en: name, id, placeholder, aria-label (case-insensitive)
+- Múltiples campos de password (≥2)
 - Campo "email" sin "username"
 - Botón con texto: "sign up", "register", "create account", "crear cuenta", "registrarse"
 - URL contiene: `/signup`, `/register`, `/join`, `/crear-cuenta`, `/registro`
 - Soporte multiidioma (español e inglés)
 
-### 2. **Captura Post-Registro**
+### 2. **Captura Post-Registro (Flujo Pasivo)**
 Cuando el usuario completa un formulario sin usar el vault:
 
 **Comportamiento:**
 - ✅ Detecta submit de formulario
 - ✅ Espera 1.5s para verificar éxito (sin errores visibles)
 - ✅ Captura username y password del formulario
-- ✅ Muestra notification pidiendo guardar en vault
+- ✅ Muestra notification verde pidiendo guardar en vault
 - ✅ Si usuario acepta → guarda automáticamente
 
-### 3. **Auto-fill Después de Creación**
-Cuando el usuario crea una entrada desde el popup en un formulario de signup:
-
-**Comportamiento:**
-- ✅ Popup crea entrada con contraseña segura generada
-- ✅ Background envía mensaje a content script con credenciales
-- ✅ Content script autorellena formulario automáticamente
-- ✅ Muestra confirmación visual
-- ✅ Usuario solo debe clickear "enviar" (el form ya está completo)
+**Nota:** Este flujo es para usuarios que prefieren crear cuentas manualmente. El flujo recomendado es el proactivo (modal in-page) para generar contraseñas seguras desde el inicio.
 
 ## 🔒 Consideraciones de Seguridad
 
@@ -63,33 +74,38 @@ Cuando el usuario crea una entrada desde el popup en un formulario de signup:
 
 ### **Modificados:**
 - `manifest.json` - Añadido content_scripts, permissions (activeTab, scripting), host_permissions
-- `src/shared/messages.ts` - Añadido `OPEN_POPUP_FOR_SIGNUP` y `AUTOFILL_CREDENTIALS` message types
-- `src/background/session.ts` - Handler para verificar vault desbloqueado
-- `src/content/autofill.ts` - Mejoradas heurísticas (multiidioma) y añadido listener para autofill
+- `src/shared/messages.ts` - Añadido `OPEN_POPUP_FOR_SIGNUP`, `AUTOFILL_CREDENTIALS`, `REQUEST_AUTOFILL` message types
+- `src/background/session.ts` - Handler para verificar vault desbloqueado y REQUEST_AUTOFILL
+- `src/background/sw.ts` - Whitelist de mensajes permitidos desde content scripts (VAULT_STATUS, OPEN_POPUP_FOR_SIGNUP)
+- `src/content/autofill.ts` - Heurísticas multiidioma, modal in-page completo, autofill automático
 - `package.json` - Script de build actualizado para compilar content script
 
 ## 🚀 Uso
 
 ### **Para el usuario:**
 
-1. **Flujo proactivo (signup):**
+1. **Flujo proactivo con modal in-page (RECOMENDADO):**
    ```
-   Usuario visita página de registro
-   → Aparece notification azul: "¿Crear contraseña segura?"
+   Usuario visita página de registro (ej: PCComponentes, Casa del Libro)
+   → Aparece notification azul: "🔐 ¿Crear contraseña segura?"
    → Usuario click "Abrir Vault"
-   → Popup se abre con generador de passwords
-   → Usuario crea credencial segura
-   → Formulario se autorellena automáticamente
-   → Usuario solo hace click en "Enviar"
+   → Modal se abre DENTRO DE LA PÁGINA (sin salir del sitio)
+   → Contraseña segura ya generada (20 caracteres)
+   → Usuario revisa título y username (pre-rellenados)
+   → Usuario click "Guardar y Usar"
+   → Formulario se autorellena con credenciales seguras
+   → Aparece notificación verde de confirmación
+   → Usuario hace click en botón "Registrarse" de la web
+   → ¡Cuenta creada con contraseña segura!
    ```
 
-2. **Flujo reactivo (post-submit):**
+2. **Flujo reactivo post-submit (pasivo):**
    ```
-   Usuario crea cuenta en sitio web
+   Usuario crea cuenta manualmente en sitio web
    → Submit exitoso detectado
    → Aparece notification verde: "¿Guardar en vault?"
    → Usuario click "Guardar"
-   → Credencial guardada automáticamente
+   → Credencial guardada automáticamente en vault
    ```
 
 ### **Para desarrollo:**
