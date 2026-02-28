@@ -331,6 +331,16 @@ textarea:focus {
   margin-bottom: 0;
 }
 
+.ascii-art {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ascii-art::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .entry-empty {
   border: 1px dashed var(--border);
   border-radius: 8px;

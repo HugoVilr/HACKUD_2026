@@ -11,10 +11,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
+      "matches": ["<all_urls>"],
+      "js": ["src/content/autofill.js", "src/content/credential-assistant.js"],
       "css": ["src/content/autofill.css"],
-      "js": ["src/content/autofill.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "icons": {
@@ -22,8 +23,8 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage", "scripting"],
-  "host_permissions": ["https://api.pwnedpasswords.com/*"],
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://api.pwnedpasswords.com/*", "<all_urls>"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none';"
   }

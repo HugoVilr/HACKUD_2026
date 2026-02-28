@@ -20,7 +20,22 @@ export const MESSAGE_TYPES = {
    * Implemented as a background message so `fetch` runs from the MV3 service worker
    * (and uses `host_permissions`).
    */
-  HIBP_CHECK: "HIBP_CHECK"
+  HIBP_CHECK: "HIBP_CHECK",
+  /**
+   * AUTO-CAPTURE: Abrir popup para crear cuenta desde vault
+   * Usado por content script cuando detecta formulario de signup
+   */
+  OPEN_POPUP_FOR_SIGNUP: "OPEN_POPUP_FOR_SIGNUP",
+  /**
+   * AUTO-CAPTURE: Rellenar formulario con credenciales
+   * Enviado desde background a content script después de crear entrada
+   */
+  AUTOFILL_CREDENTIALS: "AUTOFILL_CREDENTIALS",
+  /**
+   * AUTO-CAPTURE: Solicitar autofill en pestaña activa
+   * Enviado desde popup a background después de crear entrada
+   */
+  REQUEST_AUTOFILL: "REQUEST_AUTOFILL",
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
@@ -115,6 +130,21 @@ export interface AutofillCandidate {
   matchType: "exact" | "suffix" | "title";
 }
 
+export interface OpenPopupForSignupPayload {
+  url: string;
+  title: string;
+}
+
+export interface AutofillCredentialsPayload {
+  username: string;
+  password: string;
+}
+
+export interface RequestAutofillPayload {
+  username: string;
+  password: string;
+}
+
 export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
@@ -131,6 +161,9 @@ export interface MessagePayloadMap {
   UI_OPEN_POPUP: undefined;
   GENERATE_PASSWORD: GeneratePasswordPayload;
   HIBP_CHECK: HibpCheckPayload;
+  OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
+  AUTOFILL_CREDENTIALS: AutofillCredentialsPayload;
+  REQUEST_AUTOFILL: RequestAutofillPayload;
 }
 
 export interface VaultStatusData {
@@ -156,6 +189,9 @@ export interface MessageResponseMap {
   UI_OPEN_POPUP: ApiResult<{ opened: boolean }>;
   GENERATE_PASSWORD: ApiResult<{ password: string }>;
   HIBP_CHECK: ApiResult<{ count: number }>;
+  OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;
+  AUTOFILL_CREDENTIALS: ApiResult<{ filled: boolean }>;
+  REQUEST_AUTOFILL: ApiResult<{ sent: boolean }>;
 }
 
 export type PayloadFor<TType extends MessageType> = MessagePayloadMap[TType];

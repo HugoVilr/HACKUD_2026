@@ -7,6 +7,7 @@ const state = {
   formPasswordVisible: false,
   detailPasswordVisible: false,
   selectedSecret: null,
+  unlockMasterDraft: "",
   toastMessage: "",
   toastTone: "info",
   entries: [],
@@ -61,6 +62,19 @@ const setToast = (message, tone = "info") => {
     render();
     toastTimeoutId = null;
   }, 1800);
+};
+
+const focusUnlockInput = () => {
+  if (state.route !== "LOCKED") {
+    return;
+  }
+  const unlockInput = root.querySelector('form[data-action="unlock-vault"] input[name="master"]');
+  if (!(unlockInput instanceof HTMLInputElement)) {
+    return;
+  }
+  unlockInput.focus();
+  const caret = unlockInput.value.length;
+  unlockInput.setSelectionRange(caret, caret);
 };
 
 const copyText = async (value) => {
@@ -208,7 +222,7 @@ const renderCreateVault = () => {
 const renderUnlock = () => {
   const vaultHint = state.vaultName
     ? `Vault: ${escapeHtml(state.vaultName)}`
-    : "No se detecta vault valido en memoria (demo).";
+    : "Vault local detectado. Introduce tu master password.";
 
   return `
     <h1>Unlock vault</h1>
@@ -216,7 +230,7 @@ const renderUnlock = () => {
     <form data-action="unlock-vault" class="stack">
       <label class="field">
         <span>Master password</span>
-        <input name="master" type="password" required />
+        <input name="master" type="password" required value="${escapeHtml(state.unlockMasterDraft)}" />
       </label>
       <button class="primary" type="submit">Desbloquear</button>
     </form>
@@ -457,6 +471,7 @@ const render = () => {
       </section>
     </main>
   `;
+  focusUnlockInput();
 };
 
 root.addEventListener("submit", async (event) => {
@@ -513,11 +528,12 @@ root.addEventListener("submit", async (event) => {
   }
 
   if (action === "unlock-vault") {
-    const master = String(data.get("master") ?? "");
+    const master = String(data.get("master") ?? state.unlockMasterDraft ?? "");
     if (!master) {
       setToast("Introduce tu master password.", "error");
       return;
     }
+    state.unlockMasterDraft = master;
 
     try {
       const res = await sendApiMessage("VAULT_UNLOCK", {
@@ -525,13 +541,16 @@ root.addEventListener("submit", async (event) => {
       });
 
       if (!res.ok) {
-        setToast(res.error?.message || "Master incorrecta. Revisa mayusculas y vuelve a intentar.", "error");
+        state.unlockMasterDraft = "";
+        setToast("Master incorrecta.", "error");
         return;
       }
 
+      state.unlockMasterDraft = "";
       await refreshStatus();
       setToast("Vault desbloqueado.", "success");
     } catch (_error) {
+      state.unlockMasterDraft = "";
       setToast("No se pudo desbloquear el vault.", "error");
     }
 
@@ -614,6 +633,18 @@ root.addEventListener("submit", async (event) => {
       }
 
       setToast("Entry creada.", "success");
+      
+      // Intentar autofill en la pestaña activa si hay un formulario
+      try {
+        await sendApiMessage("REQUEST_AUTOFILL", {
+          username: username || "",
+          password
+        });
+      } catch (e) {
+        // Silenciar error si no hay content script o formulario
+        console.debug('[G8keeper] Autofill not available:', e);
+      }
+      
       render();
     } catch (_error) {
       setToast("No se pudo guardar la entry.", "error");
@@ -660,6 +691,25 @@ root.addEventListener("input", (event) => {
   if (!(target instanceof HTMLInputElement)) {
     return;
   }
+
+  const unlockForm = target.closest('form[data-action="unlock-vault"]');
+  if (unlockForm && target.name === "master") {
+    state.unlockMasterDraft = target.value;
+    if (state.toastTone === "error" && state.toastMessage) {
+      state.toastMessage = "";
+      state.toastTone = "info";
+      if (toastTimeoutId) {
+        clearTimeout(toastTimeoutId);
+        toastTimeoutId = null;
+      }
+      const toastNode = root.querySelector(".toast");
+      if (toastNode) {
+        toastNode.remove();
+      }
+    }
+    return;
+  }
+
   if (target.dataset.action !== "search") {
     return;
   }
@@ -674,6 +724,9 @@ root.addEventListener("click", async (event) => {
   }
 
   const actionButton = target.closest("[data-action]");
+  if (actionButton instanceof HTMLFormElement) {
+    return;
+  }
   const action = actionButton?.dataset.action;
   if (!action) {
     return;

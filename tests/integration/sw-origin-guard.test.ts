@@ -72,8 +72,8 @@ test("sw: blocks messages from invalid sender id", async () => {
 test("sw: blocks non-allowlisted content-script message", async () => {
   const res = await dispatch(
     {
-      type: MESSAGE_TYPES.ENTRY_ADD,
-      payload: { entry: { title: "x", password: "y" } },
+      type: MESSAGE_TYPES.REQUEST_AUTOFILL,
+      payload: { username: "x", password: "y" },
     },
     { id: "test-extension-id", tab: { id: 1 } }
   );

@@ -24,7 +24,11 @@ test("manifest declares content script for autofill", () => {
   );
 
   assert.ok(autofillEntry, "manifest should include src/content/autofill.js in content_scripts");
-  assert.deepEqual(autofillEntry.matches, ["http://*/*", "https://*/*"]);
+  assert.ok(Array.isArray(autofillEntry.matches), "matches should exist");
+  assert.ok(
+    autofillEntry.matches.includes("<all_urls>"),
+    "manifest should match <all_urls> for content script coverage"
+  );
   assert.ok(
     Array.isArray(autofillEntry.css) && autofillEntry.css.includes("src/content/autofill.css"),
     "manifest should include src/content/autofill.css in content_scripts"
