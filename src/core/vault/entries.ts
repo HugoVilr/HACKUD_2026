@@ -1,5 +1,5 @@
-import type { VaultEntry, VaultPlaintext } from "./types";
-import { nowIso } from "../../shared/time";
+import type { VaultEntry, VaultPlaintext } from "./types.ts";
+import { nowIso } from "../../shared/time.ts";
 
 function newId(): string {
   if (crypto?.randomUUID) return crypto.randomUUID();

@@ -2,7 +2,6 @@ const state = {
   route: "NO_VAULT",
   screen: "LIST",
   vaultName: "",
-  mockMaster: "",
   createError: "",
   unlockError: "",
   search: "",
@@ -10,24 +9,10 @@ const state = {
   formError: "",
   formPasswordVisible: false,
   detailPasswordVisible: false,
+  selectedSecret: null,
   toastMessage: "",
   toastTone: "info",
-  entries: [
-    {
-      id: "e1",
-      title: "Github",
-      username: "demo.user",
-      password: "P4ss-demo-2026",
-      notes: "Cuenta principal"
-    },
-    {
-      id: "e2",
-      title: "Gmail",
-      username: "demo@gmail.com",
-      password: "Mail-1234-secure",
-      notes: ""
-    }
-  ]
+  entries: []
 };
 
 const root = document.getElementById("app");
@@ -106,6 +91,7 @@ const setRoute = (route) => {
   state.formError = "";
   state.formPasswordVisible = false;
   state.detailPasswordVisible = false;
+  state.selectedSecret = null;
   state.search = "";
   state.screen = "LIST";
   state.selectedEntryId = null;
@@ -114,11 +100,78 @@ const setRoute = (route) => {
 const selectEntry = (entryId) => {
   state.selectedEntryId = entryId;
   state.detailPasswordVisible = false;
+  state.selectedSecret = null;
   state.screen = "DETAIL";
 };
 
 const getSelectedEntry = () => {
   return state.entries.find((entry) => entry.id === state.selectedEntryId) ?? null;
+};
+
+const sendApiMessage = async (type, payload) => {
+  const message = payload === undefined ? { type } : { type, payload };
+  const res = await chrome.runtime.sendMessage(message);
+  if (!res || typeof res.ok !== "boolean") {
+    throw new Error("api-bad-response");
+  }
+  return res;
+};
+
+const refreshEntries = async () => {
+  const res = await sendApiMessage("ENTRY_LIST");
+  if (!res.ok) {
+    setToast(res.error?.message || "No se pudieron cargar las entries.", "error");
+    state.entries = [];
+    render();
+    return;
+  }
+  state.entries = Array.isArray(res.data?.entries) ? res.data.entries : [];
+  render();
+};
+
+const refreshStatus = async () => {
+  const res = await sendApiMessage("VAULT_STATUS");
+  if (!res.ok) {
+    setToast(res.error?.message || "No se pudo obtener el estado del vault.", "error");
+    render();
+    return;
+  }
+
+  state.vaultName = res.data?.vaultName || "";
+
+  if (!res.data?.hasVault) {
+    setRoute("NO_VAULT");
+    state.entries = [];
+    render();
+    return;
+  }
+
+  if (res.data?.locked) {
+    setRoute("LOCKED");
+    state.entries = [];
+    render();
+    return;
+  }
+
+  setRoute("UNLOCKED");
+  await refreshEntries();
+};
+
+const ensureSelectedSecret = async () => {
+  const id = state.selectedEntryId;
+  if (!id) return null;
+  if (state.selectedSecret?.id === id) return state.selectedSecret;
+
+  const res = await sendApiMessage("ENTRY_GET_SECRET", { id });
+  if (!res.ok) {
+    setToast(res.error?.message || "No se pudo obtener el secreto.", "error");
+    render();
+    return null;
+  }
+
+  state.selectedSecret = res.data?.secret ?? null;
+  render();
+  return state.selectedSecret;
 };
 
 const renderCreateVault = () => {
@@ -147,7 +200,7 @@ const renderCreateVault = () => {
 const renderUnlock = () => {
   const vaultHint = state.vaultName
     ? `Vault: ${escapeHtml(state.vaultName)}`
-    : "No se detecta vault valido en memoria (demo).";
+    : "Vault detectado.";
 
   return `
     <h1>Unlock vault</h1>
@@ -220,7 +273,7 @@ const renderEntryForm = (mode) => {
   const entry = mode === "edit" ? getSelectedEntry() : null;
   const title = entry?.title ?? "";
   const username = entry?.username ?? "";
-  const password = entry?.password ?? "";
+  const password = mode === "edit" ? state.selectedSecret?.password ?? "" : "";
   const notes = entry?.notes ?? "";
 
   return `
@@ -270,6 +323,8 @@ const renderEntryDetail = () => {
     return renderList();
   }
 
+  const password = state.selectedSecret?.id === entry.id ? state.selectedSecret.password : "";
+
   return `
     <div class="toolbar">
       <h1>Entry detail</h1>
@@ -294,7 +349,7 @@ const renderEntryDetail = () => {
       <dt>Password</dt>
       <dd>
         <div class="inline-row">
-          <code class="secret">${escapeHtml(state.detailPasswordVisible ? entry.password || "-" : maskPassword(entry.password || ""))}</code>
+          <code class="secret">${escapeHtml(state.detailPasswordVisible ? password || "-" : maskPassword(password || ""))}</code>
           <button type="button" data-action="toggle-detail-password">
             ${state.detailPasswordVisible ? "Ocultar" : "Revelar"}
           </button>
@@ -346,20 +401,11 @@ const render = () => {
       <section class="card">
         ${routeBody()}
       </section>
-
-      <footer class="router">
-        <span class="router-label">Demo route override</span>
-        <div class="router-actions">
-          <button type="button" data-route="NO_VAULT">NO_VAULT</button>
-          <button type="button" data-route="LOCKED">LOCKED</button>
-          <button type="button" data-route="UNLOCKED">UNLOCKED</button>
-        </div>
-      </footer>
     </main>
   `;
 };
 
-root.addEventListener("submit", (event) => {
+root.addEventListener("submit", async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) {
     return;
@@ -394,11 +440,21 @@ root.addEventListener("submit", (event) => {
       return;
     }
 
-    state.vaultName = vaultName || "Vault demo";
-    state.mockMaster = master;
-    setRoute("LOCKED");
-    setToast("Vault creado. Ahora desbloquealo.", "success");
-    render();
+    const res = await sendApiMessage("VAULT_CREATE", {
+      masterPassword: master,
+      confirmPassword: confirm,
+      vaultName: vaultName || undefined
+    });
+
+    if (!res.ok) {
+      state.createError = res.error?.message || "No se pudo crear el vault.";
+      render();
+      return;
+    }
+
+    state.createError = "";
+    setToast("Vault creado.", "success");
+    await refreshStatus();
     return;
   }
 
@@ -409,20 +465,17 @@ root.addEventListener("submit", (event) => {
       render();
       return;
     }
-    if (!state.mockMaster) {
-      state.unlockError = "Vault corrupto o inexistente. Crea un vault nuevo.";
-      render();
-      return;
-    }
-    if (master !== state.mockMaster) {
-      state.unlockError = "Master incorrecta. Revisa mayusculas y vuelve a intentar.";
+
+    const res = await sendApiMessage("VAULT_UNLOCK", { masterPassword: master });
+    if (!res.ok) {
+      state.unlockError = res.error?.message || "No se pudo desbloquear.";
       render();
       return;
     }
 
-    setRoute("UNLOCKED");
+    state.unlockError = "";
     setToast("Vault desbloqueado.", "success");
-    render();
+    await refreshStatus();
     return;
   }
 
@@ -440,31 +493,43 @@ root.addEventListener("submit", (event) => {
 
     const mode = form.dataset.mode;
     if (mode === "edit" && state.selectedEntryId) {
-      state.entries = state.entries.map((entry) => {
-        if (entry.id !== state.selectedEntryId) {
-          return entry;
-        }
-        return { ...entry, title, username, password, notes };
+      const res = await sendApiMessage("ENTRY_UPDATE", {
+        entry: { id: state.selectedEntryId, title, username: username || undefined, password, notes: notes || undefined }
       });
+      if (!res.ok) {
+        state.formError = res.error?.message || "No se pudo guardar.";
+        render();
+        return;
+      }
+
       state.formError = "";
       state.screen = "DETAIL";
       state.detailPasswordVisible = false;
+      state.selectedSecret = { id: state.selectedEntryId, username, password };
       setToast("Entry actualizada.", "success");
+      await refreshEntries();
       render();
       return;
     }
 
-    const newEntry = {
-      id: `e${Date.now()}`,
-      title,
-      username,
-      password,
-      notes
-    };
+    const res = await sendApiMessage("ENTRY_ADD", {
+      entry: { title, username: username || undefined, password, notes: notes || undefined }
+    });
+    if (!res.ok) {
+      state.formError = res.error?.message || "No se pudo guardar.";
+      render();
+      return;
+    }
 
-    state.entries = [newEntry, ...state.entries];
     state.formError = "";
-    selectEntry(newEntry.id);
+    await refreshEntries();
+    const createdId = res.data?.entry?.id;
+    if (createdId) {
+      selectEntry(createdId);
+      state.selectedSecret = { id: createdId, username, password };
+    } else {
+      state.screen = "LIST";
+    }
     setToast("Entry creada.", "success");
     render();
   }
@@ -488,14 +553,6 @@ root.addEventListener("click", async (event) => {
     return;
   }
 
-  const routeButton = target.closest("[data-route]");
-  const nextRoute = routeButton?.dataset.route;
-  if (nextRoute && isPopupRoute(nextRoute)) {
-    setRoute(nextRoute);
-    render();
-    return;
-  }
-
   const actionButton = target.closest("[data-action]");
   const action = actionButton?.dataset.action;
   if (!action) {
@@ -503,9 +560,13 @@ root.addEventListener("click", async (event) => {
   }
 
   if (action === "lock") {
-    setRoute("LOCKED");
+    const res = await sendApiMessage("VAULT_LOCK");
+    if (!res.ok) {
+      setToast(res.error?.message || "No se pudo bloquear.", "error");
+      return;
+    }
     setToast("Vault bloqueado.", "info");
-    render();
+    await refreshStatus();
     return;
   }
   if (action === "to-add") {
@@ -525,6 +586,10 @@ root.addEventListener("click", async (event) => {
   if (action === "to-edit") {
     state.formError = "";
     state.formPasswordVisible = false;
+    const okSecret = await ensureSelectedSecret();
+    if (!okSecret) {
+      return;
+    }
     state.screen = "FORM_EDIT";
     render();
     return;
@@ -555,6 +620,10 @@ root.addEventListener("click", async (event) => {
       if (!accepted) {
         return;
       }
+      const okSecret = await ensureSelectedSecret();
+      if (!okSecret) {
+        return;
+      }
     }
     state.detailPasswordVisible = !state.detailPasswordVisible;
     render();
@@ -566,14 +635,29 @@ root.addEventListener("click", async (event) => {
       setToast("No se encontro la entrada.", "error");
       return;
     }
-    const value = action === "copy-username" ? entry.username : entry.password;
+    if (action === "copy-password") {
+      const okSecret = await ensureSelectedSecret();
+      if (!okSecret?.password) {
+        setToast("No hay valor para copiar.", "error");
+        return;
+      }
+      try {
+        await copyText(okSecret.password);
+        setToast("Password copiada.", "success");
+      } catch (_error) {
+        setToast("No se pudo copiar al portapapeles.", "error");
+      }
+      return;
+    }
+
+    const value = entry.username || (state.selectedSecret?.id === entry.id ? state.selectedSecret.username : "");
     if (!value) {
       setToast("No hay valor para copiar.", "error");
       return;
     }
     try {
       await copyText(value);
-      setToast(action === "copy-password" ? "Password copiada." : "Usuario copiado.", "success");
+      setToast("Usuario copiado.", "success");
     } catch (_error) {
       setToast("No se pudo copiar al portapapeles.", "error");
     }
@@ -581,3 +665,7 @@ root.addEventListener("click", async (event) => {
 });
 
 render();
+refreshStatus().catch(() => {
+  setToast("No se pudo inicializar el estado del vault.", "error");
+  render();
+});

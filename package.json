@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "echo \"TODO: configure build\"",
-    "dev": "echo \"TODO: configure dev\""
+    "dev": "echo \"TODO: configure dev\"",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }

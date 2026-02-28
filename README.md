@@ -52,6 +52,7 @@ Proyecto desarrollado para **HackUDC 2026** - Reto: "Seeking the Perfect Key" - 
 ## 🔒 Seguridad
 
 Ver **[SECURITY.md](SECURITY.md)** para documentación completa de seguridad.
+Ver `docs/hibp.md` para detalles de la integración HIBP (k-anonymity).
 
 **Highlights**:
 - **Encryption**: AES-256-GCM con PBKDF2-SHA256 (600,000 iterations)
