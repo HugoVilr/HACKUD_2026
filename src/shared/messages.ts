@@ -24,6 +24,7 @@ export const MESSAGE_TYPES = {
   HIBP_AUDIT_START: "HIBP_AUDIT_START",
   HIBP_AUDIT_STATUS: "HIBP_AUDIT_STATUS",
   HIBP_AUDIT_RESULT: "HIBP_AUDIT_RESULT",
+  HIBP_AUDIT_SCHEDULE: "HIBP_AUDIT_SCHEDULE",
   /**
    * AUTO-CAPTURE: Abrir popup para crear cuenta desde vault
    * Usado por content script cuando detecta formulario de signup
@@ -137,6 +138,16 @@ export interface HibpAuditItem {
   error?: string;
 }
 
+export interface HibpAuditScheduleData {
+  intervalHours: number;
+  lastAuditAt?: number;
+  lastAuditId?: string;
+  lastAuditState?: HibpAuditState;
+  nextAuditAt: number;
+  pending: boolean;
+  now: number;
+}
+
 export interface GeneratePasswordPayload {
   config: {
     length: number;
@@ -198,6 +209,7 @@ export interface MessagePayloadMap {
   HIBP_AUDIT_START: undefined;
   HIBP_AUDIT_STATUS: HibpAuditQueryPayload;
   HIBP_AUDIT_RESULT: HibpAuditQueryPayload;
+  HIBP_AUDIT_SCHEDULE: undefined;
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
   AUTOFILL_CREDENTIALS: AutofillCredentialsPayload;
   REQUEST_AUTOFILL: RequestAutofillPayload;
@@ -229,6 +241,7 @@ export interface MessageResponseMap {
   HIBP_AUDIT_START: ApiResult<{ auditId: string; total: number; startedAt: number }>;
   HIBP_AUDIT_STATUS: ApiResult<{ audit: HibpAuditSummary }>;
   HIBP_AUDIT_RESULT: ApiResult<{ audit: HibpAuditSummary; items: HibpAuditItem[] }>;
+  HIBP_AUDIT_SCHEDULE: ApiResult<{ schedule: HibpAuditScheduleData }>;
   OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;
   AUTOFILL_CREDENTIALS: ApiResult<{ filled: boolean }>;
   REQUEST_AUTOFILL: ApiResult<{ sent: boolean }>;

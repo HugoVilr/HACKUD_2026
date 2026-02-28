@@ -1,8 +1,10 @@
 import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shared/messages.ts";
-import { handleMessage } from "./session.ts";
+import { handleMessage, maybeRunScheduledHibpAudit } from "./session.ts";
 import { MESSAGE_TYPES } from "../shared/messages.ts";
 
 const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+const HIBP_AUDIT_ALARM = "g8keeper_hibp_schedule";
+const HIBP_AUDIT_INTERVAL_MINUTES = 6 * 60;
 
 /**
  * SECURITY FIX #18: Validación de origen de mensajes
@@ -21,7 +23,22 @@ const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
   MESSAGE_TYPES.ENTRY_ADD,
   MESSAGE_TYPES.HIBP_AUDIT_STATUS,
   MESSAGE_TYPES.HIBP_AUDIT_RESULT,
+  MESSAGE_TYPES.HIBP_AUDIT_SCHEDULE,
 ]);
+
+const ensureAuditAlarm = async () => {
+  if (!chrome.alarms?.get || !chrome.alarms?.create) {
+    return;
+  }
+  const existing = await chrome.alarms.get(HIBP_AUDIT_ALARM);
+  if (existing) {
+    return;
+  }
+  await chrome.alarms.create(HIBP_AUDIT_ALARM, {
+    periodInMinutes: HIBP_AUDIT_INTERVAL_MINUTES,
+    delayInMinutes: 1,
+  });
+};
 
 async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
   if (message.type === MESSAGE_TYPES.UI_OPEN_POPUP) {
@@ -108,3 +125,20 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
 
   return true;
 });
+
+if (chrome.runtime.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(() => {
+    void ensureAuditAlarm();
+  });
+}
+
+if (chrome.alarms?.onAlarm?.addListener) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (!alarm || alarm.name !== HIBP_AUDIT_ALARM) {
+      return;
+    }
+    void maybeRunScheduledHibpAudit("alarm");
+  });
+}
+
+void ensureAuditAlarm();

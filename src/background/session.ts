@@ -5,6 +5,7 @@ import {
   type AnyRequestMessage,
   type AutofillCandidate,
   type ApiResult,
+  type HibpAuditScheduleData,
   type HibpAuditItem,
   type HibpAuditSummary,
   type MessageType,
@@ -74,6 +75,9 @@ type HibpAuditRecord = {
 const HIBP_AUDIT_PREFIX = "g8keeper_hibp_audit_";
 const HIBP_AUDIT_ACTIVE_KEY = "g8keeper_hibp_audit_active";
 const hibpAuditStepLocks = new Set<string>();
+const hibpAuditRunners = new Set<string>();
+const HIBP_AUDIT_SCHEDULE_KEY = "g8keeper_hibp_audit_schedule";
+const HIBP_AUDIT_INTERVAL_HOURS = 12;
 
 const auditStorageKey = (auditId: string) => `${HIBP_AUDIT_PREFIX}${auditId}`;
 
@@ -103,6 +107,49 @@ const saveAuditRecord = async (record: HibpAuditRecord): Promise<void> => {
   });
 };
 
+const defaultSchedule = (): HibpAuditScheduleData => {
+  const now = Date.now();
+  return {
+    intervalHours: HIBP_AUDIT_INTERVAL_HOURS,
+    nextAuditAt: now + HIBP_AUDIT_INTERVAL_HOURS * 60 * 60 * 1000,
+    pending: false,
+    now,
+  };
+};
+
+const loadSchedule = async (): Promise<HibpAuditScheduleData> => {
+  const data = await chrome.storage.local.get(HIBP_AUDIT_SCHEDULE_KEY);
+  const raw = data?.[HIBP_AUDIT_SCHEDULE_KEY];
+  if (!raw || typeof raw !== "object") {
+    const schedule = defaultSchedule();
+    await chrome.storage.local.set({ [HIBP_AUDIT_SCHEDULE_KEY]: schedule });
+    return schedule;
+  }
+
+  const schedule: HibpAuditScheduleData = {
+    intervalHours: HIBP_AUDIT_INTERVAL_HOURS,
+    lastAuditAt: Number.isFinite(Number(raw.lastAuditAt)) ? Number(raw.lastAuditAt) : undefined,
+    lastAuditId: typeof raw.lastAuditId === "string" ? raw.lastAuditId : undefined,
+    lastAuditState: typeof raw.lastAuditState === "string" ? raw.lastAuditState : undefined,
+    nextAuditAt: Number.isFinite(Number(raw.nextAuditAt))
+      ? Number(raw.nextAuditAt)
+      : Date.now() + HIBP_AUDIT_INTERVAL_HOURS * 60 * 60 * 1000,
+    pending: Boolean(raw.pending),
+    now: Date.now(),
+  };
+
+  return schedule;
+};
+
+const saveSchedule = async (schedule: HibpAuditScheduleData): Promise<void> => {
+  const next: HibpAuditScheduleData = { ...schedule, now: Date.now() };
+  await chrome.storage.local.set({ [HIBP_AUDIT_SCHEDULE_KEY]: next });
+};
+
+const computeNextAuditAt = (baseMs: number, intervalHours: number): number => {
+  return baseMs + intervalHours * 60 * 60 * 1000;
+};
+
 const hibpCheckWithRetry = async (password: string): Promise<number> => {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -119,6 +166,17 @@ const hibpCheckWithRetry = async (password: string): Promise<number> => {
     }
   }
   throw lastError instanceof Error ? lastError : new Error("HIBP_CHECK_FAILED");
+};
+
+const finalizeScheduleAfterAudit = async (audit: HibpAuditSummary): Promise<void> => {
+  const schedule = await loadSchedule();
+  const now = Date.now();
+  schedule.lastAuditAt = now;
+  schedule.lastAuditId = audit.auditId;
+  schedule.lastAuditState = audit.state;
+  schedule.pending = false;
+  schedule.nextAuditAt = computeNextAuditAt(now, schedule.intervalHours || HIBP_AUDIT_INTERVAL_HOURS);
+  await saveSchedule(schedule);
 };
 
 const nextAuditTarget = (record: HibpAuditRecord) => {
@@ -147,6 +205,7 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       record.audit.state = "aborted";
       record.audit.finishedAt = Date.now();
       await saveAuditRecord(record);
+      await finalizeScheduleAfterAudit(record.audit);
       return record;
     }
 
@@ -155,6 +214,7 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       record.audit.state = "done";
       record.audit.finishedAt = Date.now();
       await saveAuditRecord(record);
+      await finalizeScheduleAfterAudit(record.audit);
       return record;
     }
 
@@ -199,6 +259,9 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
     }
 
     await saveAuditRecord(record);
+    if (record.audit.state !== "running") {
+      await finalizeScheduleAfterAudit(record.audit);
+    }
     console.info("[G8keeper][HIBP_AUDIT] step", {
       auditId,
       processed: record.audit.processed,
@@ -220,10 +283,128 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       error: message,
     });
     await saveAuditRecord(record);
+    await finalizeScheduleAfterAudit(record.audit);
     console.error("[G8keeper][HIBP_AUDIT] failed", { auditId, message });
     return record;
   } finally {
     hibpAuditStepLocks.delete(auditId);
+  }
+};
+
+const runAuditInBackground = async (auditId: string): Promise<void> => {
+  if (hibpAuditRunners.has(auditId)) {
+    return;
+  }
+  hibpAuditRunners.add(auditId);
+  try {
+    while (true) {
+      let record = await loadAuditRecord(auditId);
+      if (!record) {
+        return;
+      }
+      if (record.audit.state !== "running") {
+        return;
+      }
+      record = await advanceHibpAuditOneStep(record);
+      if (record.audit.state !== "running") {
+        return;
+      }
+      await sleep(180);
+    }
+  } finally {
+    hibpAuditRunners.delete(auditId);
+  }
+};
+
+const startHibpAudit = async (): Promise<{ auditId: string; total: number; startedAt: number }> => {
+  requireUnlocked();
+  touch();
+
+  const activeData = await chrome.storage.session.get(HIBP_AUDIT_ACTIVE_KEY);
+  const activeId = String(activeData?.[HIBP_AUDIT_ACTIVE_KEY] ?? "").trim();
+  if (activeId) {
+    const active = await loadAuditRecord(activeId);
+    if (active && active.audit.state === "running") {
+      void runAuditInBackground(activeId);
+      return {
+        auditId: active.audit.auditId,
+        total: active.audit.total,
+        startedAt: active.audit.startedAt,
+      };
+    }
+  }
+
+  const entryRefs = session.plaintext!.entries.map((entry) => ({
+    entryId: entry.id,
+    title: String(entry.title || "(sin titulo)"),
+  }));
+
+  if (entryRefs.length === 0) {
+    throw new Error("EMPTY_VAULT");
+  }
+
+  const auditId = createAuditId();
+  const startedAt = Date.now();
+
+  const record: HibpAuditRecord = {
+    audit: {
+      auditId,
+      state: "running",
+      startedAt,
+      total: entryRefs.length,
+      processed: 0,
+      compromised: 0,
+      safe: 0,
+      errors: 0,
+    },
+    items: [],
+    entryRefs,
+  };
+
+  await saveAuditRecord(record);
+  const schedule = await loadSchedule();
+  schedule.pending = false;
+  schedule.nextAuditAt = computeNextAuditAt(startedAt, schedule.intervalHours || HIBP_AUDIT_INTERVAL_HOURS);
+  await saveSchedule(schedule);
+  void runAuditInBackground(auditId);
+  console.info("[G8keeper][HIBP_AUDIT] started", { auditId, total: entryRefs.length });
+
+  return { auditId, total: entryRefs.length, startedAt };
+};
+
+export const maybeRunScheduledHibpAudit = async (trigger: "alarm" | "status-check"): Promise<void> => {
+  const schedule = await loadSchedule();
+  const now = Date.now();
+  const due = now >= schedule.nextAuditAt;
+  if (!due && !schedule.pending) {
+    return;
+  }
+
+  if (!session.unlocked || !session.plaintext || !session.key || !session.encrypted) {
+    schedule.pending = true;
+    await saveSchedule(schedule);
+    console.info("[G8keeper][HIBP_AUDIT] scheduled pending (locked)", { trigger, nextAuditAt: schedule.nextAuditAt });
+    return;
+  }
+
+  try {
+    const started = await startHibpAudit();
+    schedule.pending = false;
+    schedule.lastAuditId = started.auditId;
+    await saveSchedule(schedule);
+    console.info("[G8keeper][HIBP_AUDIT] scheduled started", { trigger, auditId: started.auditId });
+  } catch (error) {
+    const message = String((error as Error)?.message ?? error);
+    if (message === "EMPTY_VAULT") {
+      schedule.pending = false;
+      schedule.lastAuditAt = now;
+      schedule.lastAuditState = "done";
+      schedule.nextAuditAt = computeNextAuditAt(now, schedule.intervalHours || HIBP_AUDIT_INTERVAL_HOURS);
+      await saveSchedule(schedule);
+      console.info("[G8keeper][HIBP_AUDIT] scheduled skipped (empty vault)", { trigger });
+      return;
+    }
+    console.error("[G8keeper][HIBP_AUDIT] scheduled start failed", { trigger, message });
   }
 };
 
@@ -536,6 +717,7 @@ export async function handleMessage(
   try {
     switch (message?.type) {
       case MESSAGE_TYPES.VAULT_STATUS: {
+        void maybeRunScheduledHibpAudit("status-check");
         return ok(await getVaultStatus());
       }
 
@@ -822,39 +1004,16 @@ export async function handleMessage(
       }
 
       case MESSAGE_TYPES.HIBP_AUDIT_START: {
-        requireUnlocked();
-        touch();
-
-        const entryRefs = session.plaintext!.entries.map((entry) => ({
-          entryId: entry.id,
-          title: String(entry.title || "(sin titulo)"),
-        }));
-
-        if (entryRefs.length === 0) {
-          return err("EMPTY_VAULT", "No hay credenciales para auditar.");
+        try {
+          const started = await startHibpAudit();
+          return ok(started);
+        } catch (error) {
+          const message = String((error as Error)?.message ?? error);
+          if (message === "EMPTY_VAULT") {
+            return err("EMPTY_VAULT", "No hay credenciales para auditar.");
+          }
+          return err("INTERNAL", "No se pudo iniciar la auditoría HIBP.");
         }
-
-        const auditId = createAuditId();
-        const startedAt = Date.now();
-
-        const record: HibpAuditRecord = {
-          audit: {
-            auditId,
-            state: "running",
-            startedAt,
-            total: entryRefs.length,
-            processed: 0,
-            compromised: 0,
-            safe: 0,
-            errors: 0,
-          },
-          items: [],
-          entryRefs,
-        };
-
-        await saveAuditRecord(record);
-        console.info("[G8keeper][HIBP_AUDIT] started", { auditId, total: entryRefs.length });
-        return ok({ auditId, total: entryRefs.length, startedAt });
       }
 
       case MESSAGE_TYPES.HIBP_AUDIT_STATUS: {
@@ -887,6 +1046,11 @@ export async function handleMessage(
         }
 
         return ok({ audit: record.audit, items: record.items });
+      }
+
+      case MESSAGE_TYPES.HIBP_AUDIT_SCHEDULE: {
+        const schedule = await loadSchedule();
+        return ok({ schedule: { ...schedule, now: Date.now() } });
       }
 
       case MESSAGE_TYPES.OPEN_POPUP_FOR_SIGNUP: {
