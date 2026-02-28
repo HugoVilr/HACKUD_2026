@@ -36,11 +36,8 @@ interface DetectedForm {
  * - URL contiene: /signup, /register, /join → signup
  */
 function isSignupForm(form: HTMLFormElement): boolean {
-  console.log('[G8keeper] Checking if form is signup:', form);
-  
   // Buscar campo de confirmación de password (búsqueda manual case-insensitive)
   const passwordFields = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]'));
-  console.log('[G8keeper] Found password fields:', passwordFields.length);
   
   // Buscar confirm password field manualmente (case-insensitive)
   const confirmKeywords = ['confirm', 'repeat', 'repetir', 'confirmar'];
@@ -59,13 +56,11 @@ function isSignupForm(form: HTMLFormElement): boolean {
   });
   
   if (confirmPasswordField) {
-    console.log('[G8keeper] ✓ Detected confirm password field:', confirmPasswordField);
     return true;
   }
 
   // Si hay más de un campo de password, probablemente sea signup
   if (passwordFields.length >= 2) {
-    console.log('[G8keeper] ✓ Multiple password fields detected (signup):', passwordFields.length);
     return true;
   }
 
@@ -85,7 +80,6 @@ function isSignupForm(form: HTMLFormElement): boolean {
   });
   
   if (emailField && !usernameField) {
-    console.log('[G8keeper] ✓ Email field without username (signup):', emailField);
     return true;
   }
 
@@ -94,21 +88,16 @@ function isSignupForm(form: HTMLFormElement): boolean {
     'button[type="submit"], input[type="submit"], button:not([type])'
   );
   const buttonText = submitButton?.textContent?.toLowerCase() || submitButton?.value.toLowerCase() || '';
-  console.log('[G8keeper] Submit button text:', buttonText);
   if (buttonText.match(/sign\s*up|register|create\s*account|join|crear\s*cuenta|registr|unirse/)) {
-    console.log('[G8keeper] ✓ Signup button text detected');
     return true;
   }
 
   // Analizar URL (soporte español)
   const url = window.location.href.toLowerCase();
-  console.log('[G8keeper] Current URL:', url);
   if (url.match(/\/signup|\/register|\/join|\/create-account|\/crear-cuenta|\/registro/)) {
-    console.log('[G8keeper] ✓ Signup URL pattern detected');
     return true;
   }
 
-  console.log('[G8keeper] ✗ Not detected as signup form');
   return false;
 }
 
@@ -117,7 +106,6 @@ function isSignupForm(form: HTMLFormElement): boolean {
  */
 function detectForms(): DetectedForm[] {
   const forms = Array.from(document.querySelectorAll<HTMLFormElement>('form'));
-  console.log('[G8keeper] Scanning page, found forms:', forms.length);
   const detected: DetectedForm[] = [];
 
   for (const form of forms) {
@@ -127,7 +115,6 @@ function detectForms(): DetectedForm[] {
     );
     
     if (passwordFields.length === 0) {
-      console.log('[G8keeper] Form has no password fields, skipping');
       continue;
     }
 
@@ -151,12 +138,6 @@ function detectForms(): DetectedForm[] {
 
     const passwordField = passwordFields[0]; // Primer campo de password
     const isSignup = isSignupForm(form);
-    
-    console.log('[G8keeper] Form analysis:', { 
-      hasPasswordFields: passwordFields.length,
-      hasUsernameField: !!usernameField,
-      isSignup 
-    });
 
     detected.push({
       form,
@@ -178,9 +159,7 @@ async function isVaultUnlocked(): Promise<boolean> {
       type: 'VAULT_STATUS',
     });
     
-    console.log('[G8keeper] Vault status:', response?.data);
     const unlocked = response?.ok && response?.data?.hasVault && !response?.data?.locked;
-    console.log('[G8keeper] Vault unlocked?', unlocked);
 
     return unlocked;
   } catch (error) {
@@ -278,7 +257,6 @@ function showSignupSuggestion(form: HTMLFormElement): void {
   const remove = () => notification.remove();
 
   acceptBtn?.addEventListener('click', async () => {
-    console.log('[G8keeper] User clicked "Abrir Vault"');
     remove();
     
     // Mostrar modal de creación dentro de la página
@@ -296,8 +274,6 @@ function showSignupSuggestion(form: HTMLFormElement): void {
  * Mostrar modal de creación de entrada dentro de la página
  */
 function showCreateEntryModal(form: HTMLFormElement): void {
-  console.log('[G8keeper] Opening create entry modal');
-  
   // Detectar username actual del formulario para pre-rellenar
   const detected = detectForms().find(f => f.form === form);
   const currentUsername = detected?.usernameField?.value || '';
@@ -608,7 +584,6 @@ function showCreateEntryModal(form: HTMLFormElement): void {
   passwordInput.addEventListener('input', validateForm);
   
   generateBtn.addEventListener('click', async () => {
-    console.log('[G8keeper] Generating password...');
     generateBtn.disabled = true;
     generateBtn.textContent = '⏳ Generando...';
     
@@ -630,7 +605,6 @@ function showCreateEntryModal(form: HTMLFormElement): void {
       if (response.ok) {
         passwordInput.value = response.data.password;
         validateForm();
-        console.log('[G8keeper] Password generated successfully');
       } else {
         errorDiv.textContent = 'Error generando contraseña: ' + response.error?.message;
         errorDiv.style.display = 'block';
@@ -646,7 +620,6 @@ function showCreateEntryModal(form: HTMLFormElement): void {
   });
   
   saveBtn.addEventListener('click', async () => {
-    console.log('[G8keeper] Saving entry...');
     saveBtn.disabled = true;
     saveBtn.textContent = 'Guardando...';
     errorDiv.style.display = 'none';
@@ -668,8 +641,6 @@ function showCreateEntryModal(form: HTMLFormElement): void {
       });
       
       if (response.ok) {
-        console.log('[G8keeper] Entry saved successfully');
-        
         // Rellenar formulario automáticamente
         if (detected) {
           if (detected.usernameField) {
@@ -691,8 +662,6 @@ function showCreateEntryModal(form: HTMLFormElement): void {
             field.dispatchEvent(new Event('input', { bubbles: true }));
             field.dispatchEvent(new Event('change', { bubbles: true }));
           });
-          
-          console.log('[G8keeper] Form auto-filled with credentials');
         }
         
         // Mostrar confirmación y cerrar modal
@@ -900,23 +869,17 @@ function escapeHtmlContent(text: string): string {
  * Monitorear formularios detectados
  */
 async function monitorForms(): Promise<void> {
-  console.log('[G8keeper] monitorForms() called');
   const unlocked = await isVaultUnlocked();
   if (!unlocked) {
-    console.log('[G8keeper] Vault is locked, skipping form monitoring');
     return; // Solo funciona con vault desbloqueado
   }
 
   const detected = detectForms();
-  console.log('[G8keeper] Forms with password fields:', detected.length);
 
   for (const { form, isSignup, ...rest } of detected) {
     // Flujo 1: Sugerir crear desde vault si es signup
     if (isSignup) {
-      console.log('[G8keeper] Showing signup suggestion for form');
       showSignupSuggestion(form);
-    } else {
-      console.log('[G8keeper] Form is login, not signup - skipping suggestion');
     }
 
     // Flujo 2: Capturar después de submit exitoso
@@ -939,19 +902,11 @@ async function monitorForms(): Promise<void> {
 }
 
 // Ejecutar cuando el DOM esté listo
-console.log('[G8keeper] Auto-capture content script initializing...', {
-  readyState: document.readyState,
-  url: window.location.href
-});
-
 if (document.readyState === 'loading') {
-  console.log('[G8keeper] DOM still loading, waiting for DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', () => {
-    console.log('[G8keeper] DOMContentLoaded event fired');
     monitorForms();
   });
 } else {
-  console.log('[G8keeper] DOM already ready, monitoring forms now...');
   monitorForms();
 }
 
@@ -964,7 +919,6 @@ const observer = new MutationObserver((mutations) => {
   );
 
   if (hasNewForms) {
-    console.log('[G8keeper] New forms detected via MutationObserver, re-monitoring...');
     monitorForms();
   }
 });
@@ -973,8 +927,6 @@ observer.observe(document.body, {
   childList: true,
   subtree: true,
 });
-
-console.log('[G8keeper] MutationObserver initialized');
 
 /**
  * Listener para autofill desde background
@@ -1046,5 +998,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true });
   }
 });
-
-console.log('[G8keeper] Auto-capture content script loaded');

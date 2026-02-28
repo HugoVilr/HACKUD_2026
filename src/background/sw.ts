@@ -63,8 +63,6 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
       });
       return true;
     }
-    
-    console.log('[G8keeper] Content script message allowed:', message.type);
   }
 
   handleMessage(message)
