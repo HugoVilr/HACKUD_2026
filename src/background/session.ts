@@ -585,6 +585,32 @@ export async function handleMessage(
         return ok({ opened: true });
       }
 
+      case MESSAGE_TYPES.REQUEST_AUTOFILL: {
+        // Popup solicita autofill en la pestaña activa
+        requireUnlocked();
+        
+        const { username, password } = payload as { username: string; password: string };
+        
+        // Obtener la pestaña activa actual
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs.length === 0 || !tabs[0].id) {
+          return err("NO_ACTIVE_TAB", "No hay pestaña activa");
+        }
+        
+        try {
+          // Enviar mensaje de autofill al content script de la pestaña activa
+          await chrome.tabs.sendMessage(tabs[0].id, {
+            type: MESSAGE_TYPES.AUTOFILL_CREDENTIALS,
+            payload: { username, password }
+          });
+          
+          return ok({ sent: true });
+        } catch (error) {
+          console.error('[G8keeper] Error sending autofill message:', error);
+          return err("AUTOFILL_FAILED", "No se pudo autorellenar el formulario");
+        }
+      }
+
       default:
         return err("UNKNOWN_MESSAGE", "Mensaje no soportado");
     }

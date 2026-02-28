@@ -28,7 +28,12 @@ export const MESSAGE_TYPES = {
    * AUTO-CAPTURE: Rellenar formulario con credenciales
    * Enviado desde background a content script después de crear entrada
    */
-  AUTOFILL_CREDENTIALS: "AUTOFILL_CREDENTIALS"
+  AUTOFILL_CREDENTIALS: "AUTOFILL_CREDENTIALS",
+  /**
+   * AUTO-CAPTURE: Solicitar autofill en pestaña activa
+   * Enviado desde popup a background después de crear entrada
+   */
+  REQUEST_AUTOFILL: "REQUEST_AUTOFILL"
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
@@ -120,6 +125,11 @@ export interface AutofillCredentialsPayload {
   password: string;
 }
 
+export interface RequestAutofillPayload {
+  username: string;
+  password: string;
+}
+
 export interface MessagePayloadMap {
   VAULT_CREATE: VaultCreatePayload;
   VAULT_UNLOCK: VaultUnlockPayload;
@@ -136,6 +146,7 @@ export interface MessagePayloadMap {
   HIBP_CHECK: HibpCheckPayload;
   OPEN_POPUP_FOR_SIGNUP: OpenPopupForSignupPayload;
   AUTOFILL_CREDENTIALS: AutofillCredentialsPayload;
+  REQUEST_AUTOFILL: RequestAutofillPayload;
 }
 
 export interface VaultStatusData {
@@ -161,6 +172,7 @@ export interface MessageResponseMap {
   HIBP_CHECK: ApiResult<{ count: number }>;
   OPEN_POPUP_FOR_SIGNUP: ApiResult<{ opened: boolean }>;
   AUTOFILL_CREDENTIALS: ApiResult<{ filled: boolean }>;
+  REQUEST_AUTOFILL: ApiResult<{ sent: boolean }>;
 }
 
 export type PayloadFor<TType extends MessageType> = MessagePayloadMap[TType];
