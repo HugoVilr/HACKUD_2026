@@ -45,6 +45,28 @@ test("credential-assistant no longer blocks signup suggestions when vault is loc
   );
 });
 
+test("credential-assistant stores normalized domain in ENTRY_ADD payloads", () => {
+  const src = load("src/content/credential-assistant.ts");
+  assert.ok(src.includes("function currentDomain()"), "currentDomain() helper should exist");
+  assert.ok(
+    src.includes("domain: currentDomain(),"),
+    "ENTRY_ADD payloads should include normalized domain"
+  );
+});
+
+test("credential-assistant chooses best target form for AUTOFILL_CREDENTIALS", () => {
+  const src = load("src/content/credential-assistant.ts");
+  assert.ok(src.includes("function findBestAutofillTarget"), "should define form targeting helper");
+  assert.ok(
+    src.includes("const target = findBestAutofillTarget(forms);"),
+    "AUTOFILL_CREDENTIALS handler should use target form selection"
+  );
+  assert.ok(
+    src.includes("findFallbackUsernameField(form, passwordField)"),
+    "AUTOFILL_CREDENTIALS handler should include username fallback lookup"
+  );
+});
+
 test("popup closes extension window after successful unlock", () => {
   const src = load("src/popup/popup.tsx");
   const unlockIndex = src.indexOf('if (action === "unlock-vault") {');

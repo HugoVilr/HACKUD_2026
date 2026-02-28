@@ -1,0 +1,11 @@
+:root {
+  --g8-font-mono: "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+  --g8-accent-rgb: 154, 248, 157;
+  --g8-accent: #9af89d;
+  --g8-accent-strong: #cefccd;
+  --g8-muted: #6d8f6f;
+  --g8-muted-strong: #9bc89f;
+  --g8-border: rgba(var(--g8-accent-rgb), 0.35);
+  --g8-danger-bg: #6f2a2a;
+  --g8-danger-text: #ffc1c1;
+}
