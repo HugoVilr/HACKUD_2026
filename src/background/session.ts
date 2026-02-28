@@ -778,7 +778,13 @@ function getAutofillCandidatesByHostname(hostname: string): AutofillCandidate[] 
 
     if (domain && (domain === host || domainBase === hostBase)) {
       matchType = "exact";
-    } else if (domain && (host.endsWith(`.${domain}`) || hostBase.endsWith(`.${domainBase}`))) {
+    } else if (
+      domain &&
+      (host.endsWith(`.${domain}`) ||
+        hostBase.endsWith(`.${domainBase}`) ||
+        domain.endsWith(`.${host}`) ||
+        domainBase.endsWith(`.${hostBase}`))
+    ) {
       matchType = "suffix";
     } else if (hostBase && titleLc.includes(hostBase)) {
       matchType = "title";

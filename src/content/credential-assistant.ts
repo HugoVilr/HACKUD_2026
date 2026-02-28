@@ -27,6 +27,64 @@ interface DetectedForm {
   isSignup: boolean;
 }
 
+function normalizeDomain(raw: string): string {
+  const host = String(raw ?? "").trim().toLowerCase();
+  if (!host) return "";
+  return host.replace(/^www\./, "").replace(/\.+$/, "");
+}
+
+function currentDomain(): string {
+  const normalized = normalizeDomain(window.location.hostname);
+  return normalized || String(window.location.hostname || "").trim().toLowerCase();
+}
+
+function setNativeInputValue(input: HTMLInputElement, value: string): void {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  if (descriptor?.set) descriptor.set.call(input, value);
+  else input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function findBestAutofillTarget(forms: DetectedForm[]): DetectedForm | null {
+  if (forms.length === 0) return null;
+
+  const active = document.activeElement;
+  if (active instanceof HTMLElement) {
+    const activeForm = forms.find((item) => item.form.contains(active));
+    if (activeForm) return activeForm;
+  }
+
+  const loginForm = forms.find((item) => !item.isSignup && item.passwordField);
+  if (loginForm) return loginForm;
+
+  return forms[0];
+}
+
+function findFallbackUsernameField(form: HTMLFormElement, passwordField: HTMLInputElement | null): HTMLInputElement | null {
+  const selectors = [
+    'input[autocomplete="username"]',
+    'input[autocomplete="email"]',
+    'input[type="email"]',
+    'input[name*="user" i], input[id*="user" i]',
+    'input[name*="email" i], input[id*="email" i]',
+    'input[name*="login" i], input[id*="login" i]',
+    'input[type="text"]',
+  ];
+
+  for (const selector of selectors) {
+    const candidate = Array.from(form.querySelectorAll<HTMLInputElement>(selector)).find((input) => {
+      if (input === passwordField) return false;
+      if (input.disabled || input.readOnly) return false;
+      if (input.type === "hidden") return false;
+      return true;
+    });
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
+
 const G8_SIGNUP_SUGGESTION_STYLE = String.raw`
   <style>
     #g8keeper-signup-notification .g8keeper-toast {
@@ -842,7 +900,7 @@ function showCreateEntryModal(form: HTMLFormElement): void {
         payload: {
           entry: {
             title,
-            domain: window.location.hostname,
+            domain: currentDomain(),
             username,
             password
           }
@@ -949,7 +1007,7 @@ function captureFormData(detected: DetectedForm): CapturedFormData | null {
 
   return {
     url: window.location.origin,
-    domain: window.location.hostname,
+    domain: currentDomain(),
     title: document.title,
     username,
     password,
@@ -1143,27 +1201,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'AUTOFILL_CREDENTIALS') {
     const { username, password } = message.payload;
 
-    // Buscar formularios en la página
-    const detected = detectForms();
-    if (detected.length === 0) {
+    const forms = detectForms();
+    const target = findBestAutofillTarget(forms);
+    if (!target) {
       sendResponse({ ok: false, error: 'No forms detected' });
       return;
     }
 
-    // Usar el primer formulario detectado
-    const { form, usernameField, passwordField } = detected[0];
+    const { form, passwordField } = target;
+    const usernameField = target.usernameField || findFallbackUsernameField(form, passwordField);
 
-    // Rellenar campos
     if (usernameField && username) {
-      usernameField.value = username;
-      usernameField.dispatchEvent(new Event('input', { bubbles: true }));
-      usernameField.dispatchEvent(new Event('change', { bubbles: true }));
+      setNativeInputValue(usernameField, username);
     }
 
     if (passwordField && password) {
-      passwordField.value = password;
-      passwordField.dispatchEvent(new Event('input', { bubbles: true }));
-      passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+      setNativeInputValue(passwordField, password);
+      passwordField.focus();
     }
 
     // Mostrar confirmación visual
