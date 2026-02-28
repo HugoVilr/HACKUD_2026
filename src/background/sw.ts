@@ -2,6 +2,8 @@ import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shar
 import { handleMessage } from "./session.ts";
 import { MESSAGE_TYPES } from "../shared/messages.ts";
 
+const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+
 /**
  * SECURITY FIX #18: Validación de origen de mensajes
  *
@@ -22,6 +24,15 @@ const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
 async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
   if (message.type === MESSAGE_TYPES.UI_OPEN_POPUP) {
     try {
+      const source = message.payload?.source;
+      if (source === "signup") {
+        await chrome.storage.session.set({
+          [POPUP_CONTEXT_KEY]: {
+            source: "signup",
+            expiresAt: Date.now() + 120_000,
+          },
+        });
+      }
       await chrome.action.openPopup();
       return { ok: true, data: { opened: true } } as MessageResponseMap[MessageType];
     } catch (e: unknown) {

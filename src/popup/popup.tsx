@@ -14,6 +14,8 @@ const state = {
   showDeleteConfirm: false
 };
 
+const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+
 const root = document.getElementById("app");
 if (!root) {
   throw new Error("Popup root not found");
@@ -132,6 +134,23 @@ const sendApiMessage = async (type, payload) => {
     throw new Error("api-bad-response");
   }
   return res;
+};
+
+const consumeSignupUnlockContext = async () => {
+  try {
+    const data = await chrome.storage.session.get(POPUP_CONTEXT_KEY);
+    const context = data?.[POPUP_CONTEXT_KEY];
+    if (!context || typeof context !== "object") {
+      return false;
+    }
+    const isSignupContext = context.source === "signup";
+    const expiresAt = Number(context.expiresAt || 0);
+    const isExpired = !Number.isFinite(expiresAt) || expiresAt < Date.now();
+    await chrome.storage.session.remove(POPUP_CONTEXT_KEY);
+    return isSignupContext && !isExpired;
+  } catch {
+    return false;
+  }
 };
 
 const refreshEntries = async () => {
@@ -547,7 +566,19 @@ root.addEventListener("submit", async (event) => {
       }
 
       state.unlockMasterDraft = "";
-      await refreshStatus();
+      const shouldClosePopup = await consumeSignupUnlockContext();
+      if (shouldClosePopup) {
+        // Regla UX: solo cerrar popup si se abrió desde el flujo de signup.
+        setTimeout(() => {
+          window.close();
+        }, 80);
+      }
+
+      try {
+        await refreshStatus();
+      } catch {
+        // Ignore: no bloquear el cierre del popup.
+      }
       setToast("Vault desbloqueado.", "success");
     } catch (_error) {
       state.unlockMasterDraft = "";
