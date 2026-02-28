@@ -220,6 +220,13 @@ const refreshStatus = async () => {
 
   state.vaultName = res.data?.vaultName || "";
 
+  // CRITICAL: Si hay recovery codes pendientes, NO cambiar route ni renderizar
+  // El usuario debe completar el flujo de recovery codes primero
+  if (state.recoveryCodes && state.recoveryCodes.length > 0) {
+    // Solo actualizar vaultName, no cambiar route ni renderizar
+    return;
+  }
+
   if (!res.data?.hasVault) {
     setRoute("NO_VAULT");
     state.entries = [];
@@ -411,6 +418,7 @@ const renderList = () => {
     }
     return (
       String(entry.title || "").toLowerCase().includes(needle) ||
+      String(entry.domain || "").toLowerCase().includes(needle) ||
       String(entry.username || "").toLowerCase().includes(needle) ||
       String(entry.notes || "").toLowerCase().includes(needle)
     );
@@ -422,6 +430,7 @@ const renderList = () => {
         <h1>Vault entries</h1>
         <div class="toolbar-actions">
           <button type="button" data-action="to-add" class="primary">+ Add</button>
+          <button type="button" data-action="run-hibp-audit">Leak audit</button>
           <button type="button" data-action="lock">Lock</button>
           <button type="button" data-action="show-delete" class="caution-button">Eliminar Vault</button>
         </div>
@@ -462,6 +471,7 @@ const renderList = () => {
 const renderEntryForm = (mode) => {
   const entry = mode === "edit" ? getSelectedEntry() : null;
   const title = entry?.title ?? "";
+  const domain = entry?.domain ?? "";
   const username = entry?.username ?? "";
   const password = mode === "edit" ? state.selectedSecret?.password ?? "" : "";
   const notes = entry?.notes ?? "";
@@ -476,6 +486,10 @@ const renderEntryForm = (mode) => {
       <label class="field">
         <span>Titulo</span>
         <input name="title" type="text" required maxlength="60" value="${escapeHtml(title)}" />
+      </label>
+      <label class="field">
+        <span>Dominio (opcional)</span>
+        <input name="domain" type="text" maxlength="120" placeholder="ej: github.com" value="${escapeHtml(domain)}" />
       </label>
       <label class="field">
         <span>Usuario</span>
@@ -527,6 +541,9 @@ const renderEntryDetail = () => {
     <dl class="detail-grid">
       <dt>Titulo</dt>
       <dd>${escapeHtml(entry.title || "")}</dd>
+
+      <dt>Dominio</dt>
+      <dd>${escapeHtml(entry.domain || "-")}</dd>
 
       <dt>Usuario</dt>
       <dd>
@@ -661,6 +678,8 @@ root.addEventListener("submit", async (event) => {
       if (res.data?.recoveryCodes && res.data.recoveryCodes.length > 0) {
         state.recoveryCodes = res.data.recoveryCodes;
         state.recoveryCodesAcknowledged = false;
+        state.recoveryCodesSaved = false;
+        await saveRecoveryCodesContext();
         render(); // Re-render para mostrar los recovery codes
         return;
       }
@@ -750,6 +769,7 @@ root.addEventListener("submit", async (event) => {
 
   if (action === "save-entry") {
     const title = String(data.get("title") ?? "").trim();
+    const domain = String(data.get("domain") ?? "").trim();
     const username = String(data.get("username") ?? "").trim();
     const password = String(data.get("password") ?? "").trim();
     const notes = String(data.get("notes") ?? "").trim();
@@ -773,6 +793,7 @@ root.addEventListener("submit", async (event) => {
           entry: {
             id: state.selectedEntryId,
             title,
+            domain: domain || undefined,
             username: username || undefined,
             password,
             notes: notes || undefined,
@@ -801,6 +822,7 @@ root.addEventListener("submit", async (event) => {
       const res = await sendApiMessage("ENTRY_ADD", {
         entry: {
           title,
+          domain: domain || undefined,
           username: username || undefined,
           password,
           notes: notes || undefined
@@ -940,6 +962,29 @@ root.addEventListener("click", async (event) => {
       setToast("Vault bloqueado.", "info");
     } catch (_error) {
       setToast("No se pudo bloquear el vault.", "error");
+    }
+    return;
+  }
+
+  if (action === "run-hibp-audit") {
+    try {
+      const res = await sendApiMessage("HIBP_AUDIT_START");
+      if (!res.ok) {
+        setToast(res.error?.message || "No se pudo iniciar la auditoria HIBP.", "error");
+        return;
+      }
+
+      const auditId = String(res.data?.auditId ?? "").trim();
+      if (!auditId) {
+        setToast("No se pudo crear el reporte de auditoria.", "error");
+        return;
+      }
+
+      const url = chrome.runtime.getURL(`src/report/report.html?audit=${encodeURIComponent(auditId)}`);
+      await chrome.tabs.create({ url });
+      setToast("Auditoria iniciada. Reporte abierto en una nueva pestana.", "info");
+    } catch (_error) {
+      setToast("No se pudo iniciar la auditoria HIBP.", "error");
     }
     return;
   }

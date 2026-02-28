@@ -1,8 +1,10 @@
 import type { AnyRequestMessage, MessageResponseMap, MessageType } from "../shared/messages.ts";
-import { handleMessage } from "./session.ts";
+import { handleMessage, maybeRunScheduledHibpAudit } from "./session.ts";
 import { MESSAGE_TYPES } from "../shared/messages.ts";
 
 const POPUP_CONTEXT_KEY = "g8keeper_popup_context";
+const HIBP_AUDIT_ALARM = "g8keeper_hibp_schedule";
+const HIBP_AUDIT_INTERVAL_MINUTES = 6 * 60;
 
 /**
  * SECURITY FIX #18: Validación de origen de mensajes
@@ -19,7 +21,24 @@ const CONTENT_SCRIPT_ALLOWED_TYPES = new Set<string>([
   MESSAGE_TYPES.OPEN_POPUP_FOR_SIGNUP,
   MESSAGE_TYPES.GENERATE_PASSWORD,
   MESSAGE_TYPES.ENTRY_ADD,
+  MESSAGE_TYPES.HIBP_AUDIT_STATUS,
+  MESSAGE_TYPES.HIBP_AUDIT_RESULT,
+  MESSAGE_TYPES.HIBP_AUDIT_SCHEDULE,
 ]);
+
+const ensureAuditAlarm = async () => {
+  if (!chrome.alarms?.get || !chrome.alarms?.create) {
+    return;
+  }
+  const existing = await chrome.alarms.get(HIBP_AUDIT_ALARM);
+  if (existing) {
+    return;
+  }
+  await chrome.alarms.create(HIBP_AUDIT_ALARM, {
+    periodInMinutes: HIBP_AUDIT_INTERVAL_MINUTES,
+    delayInMinutes: 1,
+  });
+};
 
 async function dispatchMessage(message: AnyRequestMessage): Promise<MessageResponseMap[MessageType]> {
   if (message.type === MESSAGE_TYPES.UI_OPEN_POPUP) {
@@ -57,10 +76,34 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
     return true;
   }
 
-  if (sender.tab) {
+  const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+  const senderUrl = String(sender.url ?? "");
+  const senderTabUrl = String((sender.tab as { url?: string } | undefined)?.url ?? "");
+  const senderOrigin = String(
+    // origin/documentOrigin no siempre están tipados en @types/chrome según versión.
+    (sender as { origin?: string; documentOrigin?: string }).origin ??
+      (sender as { origin?: string; documentOrigin?: string }).documentOrigin ??
+      ""
+  );
+  const isExtensionPage =
+    senderUrl.startsWith(extensionOrigin) ||
+    senderOrigin.startsWith(extensionOrigin) ||
+    senderTabUrl.startsWith(extensionOrigin);
+  const isWebContentScript = Boolean(sender.tab) && !isExtensionPage;
+
+  // Solo aplicar allowlist estricta a content scripts inyectados en páginas web.
+  // Las páginas internas de la extensión (popup/report/options), aunque tengan sender.tab,
+  // deben tener acceso completo como trusted UI.
+  if (isWebContentScript) {
     const type = message?.type;
     if (!type || !CONTENT_SCRIPT_ALLOWED_TYPES.has(type)) {
-      console.warn('[sw] FORBIDDEN: Content script not allowed for message type:', type);
+      console.warn("[G8keeper] Blocked content-script message", {
+        type,
+        senderUrl,
+        senderTabUrl,
+        senderOrigin,
+        hasTab: Boolean(sender.tab),
+      });
       sendResponse({
         ok: false,
         error: {
@@ -84,3 +127,20 @@ chrome.runtime.onMessage.addListener((message: AnyRequestMessage, sender, sendRe
 
   return true;
 });
+
+if (chrome.runtime.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(() => {
+    void ensureAuditAlarm();
+  });
+}
+
+if (chrome.alarms?.onAlarm?.addListener) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (!alarm || alarm.name !== HIBP_AUDIT_ALARM) {
+      return;
+    }
+    void maybeRunScheduledHibpAudit("alarm");
+  });
+}
+
+void ensureAuditAlarm();
