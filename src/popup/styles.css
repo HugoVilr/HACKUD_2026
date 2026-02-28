@@ -418,3 +418,107 @@ textarea:focus {
   background: rgba(154, 248, 157, 0.38);
   border-radius: 999px;
 }
+
+/* Recovery Codes Styles */
+.recovery-codes-screen {
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.recovery-codes-list {
+  background: rgba(10, 20, 10, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 12px 0;
+  font-family: var(--font);
+}
+
+.recovery-code-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(154, 248, 157, 0.15);
+}
+
+.recovery-code-item:last-child {
+  border-bottom: none;
+}
+
+.code-number {
+  font-weight: bold;
+  color: var(--accent);
+  margin-right: 12px;
+  min-width: 24px;
+}
+
+.code-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--accent-strong);
+  background: rgba(154, 248, 157, 0.08);
+  padding: 6px 10px;
+  border-radius: 3px;
+  word-break: break-all;
+  border: 1px solid rgba(154, 248, 157, 0.2);
+}
+
+.recovery-codes-info {
+  background: rgba(154, 248, 157, 0.08);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.recovery-codes-info ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.recovery-codes-info li {
+  margin: 4px 0;
+}
+
+.checkbox-field {
+  background: rgba(10, 20, 10, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  margin: 12px 0;
+  display: flex !important;
+  align-items: center;
+  cursor: pointer;
+}
+
+.checkbox-field input[type="checkbox"] {
+  margin-right: 8px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.checkbox-field span {
+  font-size: 13px;
+}
+
+.warning-text {
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.5);
+  border-radius: 4px;
+  padding: 10px;
+  color: #ffc107;
+  font-size: 13px;
+}
+
+.secondary {
+  background: rgba(108, 117, 125, 0.3);
+  border: 1px solid rgba(108, 117, 125, 0.5);
+  color: var(--text);
+}
+
+.secondary:hover {
+  background: rgba(108, 117, 125, 0.5);
+  border-color: rgba(108, 117, 125, 0.7);
+}
