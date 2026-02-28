@@ -13,7 +13,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["src/content/autofill.js", "src/content/credential-assistant.js"],
-      "css": ["src/content/autofill.css"],
+      "css": ["src/styles/shared.css", "src/styles/content-autofill.css", "src/styles/content-credential-assistant.css"],
       "run_at": "document_idle",
       "all_frames": false
     }

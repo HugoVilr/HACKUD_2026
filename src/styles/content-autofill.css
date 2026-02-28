@@ -81,14 +81,14 @@
   position: fixed;
   z-index: 2147483647;
   display: none;
-  border: 1px solid rgba(154, 248, 157, 0.35);
+  border: 1px solid var(--g8-border);
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(15, 32, 15, 0.96) 0%, rgba(8, 17, 8, 0.98) 100%);
   box-shadow: inset 0 0 0 1px rgba(154, 248, 157, 0.06), 0 16px 42px rgba(0, 0, 0, 0.45);
   padding: 8px;
   max-height: 300px;
   overflow: auto;
-  font-family: "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+  font-family: var(--g8-font-mono);
 }
 
 .g8keeper-autofill-panel--visible {
@@ -96,8 +96,8 @@
 }
 
 .g8keeper-autofill-panel__title {
-  font: 600 12px/1.35 "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
-  color: #cefccd;
+  font: 600 12px/1.35 var(--g8-font-mono);
+  color: var(--g8-accent-strong);
   text-shadow: 0 0 6px rgba(154, 248, 157, 0.2);
   margin: 2px 4px 8px;
 }
@@ -125,18 +125,18 @@
 }
 
 .g8keeper-autofill-panel__item-title {
-  font: 600 12px/1.25 "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
-  color: #cefccd;
+  font: 600 12px/1.25 var(--g8-font-mono);
+  color: var(--g8-accent-strong);
 }
 
 .g8keeper-autofill-panel__item-meta {
-  font: 400 11px/1.25 "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
-  color: #6d8f6f;
+  font: 400 11px/1.25 var(--g8-font-mono);
+  color: var(--g8-muted);
 }
 
 .g8keeper-autofill-panel__message {
-  font: 500 12px/1.35 "Roboto Mono", "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
-  border: 1px solid rgba(154, 248, 157, 0.35);
+  font: 500 12px/1.35 var(--g8-font-mono);
+  border: 1px solid var(--g8-border);
   border-radius: 10px;
   padding: 10px;
   color: #e9ffe9;
@@ -145,6 +145,6 @@
 
 .g8keeper-autofill-panel__message--warning {
   border-color: rgba(255, 127, 127, 0.5);
-  background: #6f2a2a;
-  color: #ffc1c1;
+  background: var(--g8-danger-bg);
+  color: var(--g8-danger-text);
 }

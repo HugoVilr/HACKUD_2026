@@ -14,7 +14,7 @@ Esta funcionalidad añade autocompletado de credenciales en formularios web usan
 - `manifest.json`
   - `content_scripts` con:
     - `src/content/autofill.js`
-    - `src/content/autofill.css`
+    - `src/styles/content-autofill.css`
 - `src/content/autofill.ts`
   - Detección de campos.
   - UI flotante (candado + panel).
