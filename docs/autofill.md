@@ -71,6 +71,31 @@ Recomendación de datos:
 
 - Guardar `domain` en cada entry (`pccomponentes.com`, `github.com`, etc.).
 
+Normalización aplicada al guardar desde `credential-assistant`:
+
+- Minúsculas.
+- Se elimina prefijo `www.`.
+- Se eliminan puntos finales.
+
+Esto mejora que el `domain` se vea consistente en el edit del vault y evita no-coincidencias por formato.
+
+Compatibilidad de coincidencia (background):
+
+- `example.com` coincide con `www.example.com`.
+- Subdominio y dominio raíz se consideran compatibles en ambos sentidos para sugerencias (`auth.example.com` ↔ `example.com`).
+
+## Autofill de login desde popup (REQUEST_AUTOFILL)
+
+Cuando se crea una entry desde popup y se envía `AUTOFILL_CREDENTIALS`:
+
+- Ya no se rellena “el primer formulario detectado” siempre.
+- Se prioriza:
+  1. Formulario que contiene el elemento activo.
+  2. Formulario de login (no signup).
+  3. Fallback al primer formulario detectado.
+- Si falta `usernameField`, se busca uno alternativo por selectores comunes (`autocomplete`, `user`, `email`, `login`).
+- El set de valor usa setter nativo + eventos `input/change` para compatibilidad con apps SPA (React/Vue/Angular).
+
 ## Comportamiento al desbloquear
 
 - Si se abre popup desde candado y el unlock es correcto:

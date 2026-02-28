@@ -257,6 +257,10 @@ HACKUD_2026/
 │   │   │       └── EntryForm.tsx
 │   │   └── api/
 │   │       └── backgroundClient.ts # Message passing abstraction
+│   ├── report/
+│   │   ├── report.html            # HIBP audit dashboard entry
+│   │   ├── report.css             # HIBP audit dashboard styles
+│   │   └── report.tsx             # HIBP audit polling/render logic
 │   ├── shared/
 │   │   ├── messages.ts            # Type-safe message contracts
 │   │   ├── b64.ts                 # Base64 encoding/decoding
@@ -274,6 +278,7 @@ HACKUD_2026/
 ├── docs/
 │   ├── AUTO_CAPTURE.md            # Credential assistant documentation
 │   ├── autofill.md                # Autofill engine documentation
+│   ├── hibp-audit.md              # Vault leak audit + report documentation
 │   ├── hibp.md                    # HIBP integration documentation
 │   └── README.md                  # Documentation index
 ├── scripts/
