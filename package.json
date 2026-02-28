@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/background/sw.ts --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/background/sw.js && esbuild src/popup/popup.tsx --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/popup/popup.js && esbuild src/content/autofill.ts --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/content/autofill.js",
+    "build": "esbuild src/background/sw.ts --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/background/sw.js && esbuild src/popup/popup.tsx --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/popup/popup.js && esbuild src/content/credential-assistant.ts --bundle --format=esm --platform=browser --target=chrome120 --outfile=src/content/credential-assistant.js",
     "dev": "echo \"TODO: configure dev\"",
     "test": "node scripts/run-tests.mjs"
   },

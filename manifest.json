@@ -12,7 +12,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content/autofill.js"],
+      "js": ["src/content/credential-assistant.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
