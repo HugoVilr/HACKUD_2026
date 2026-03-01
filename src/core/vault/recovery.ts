@@ -1,26 +1,8 @@
 /**
- * SECURITY MODULE: Recovery Codes
- * 
- * Sistema de códigos de recuperación de un solo uso para desbloquear vault
- * cuando se olvida la contraseña maestra.
- * 
- * CARACTERÍSTICAS DE SEGURIDAD:
- * - 4 códigos únicos generados con HKDF-SHA512
- * - 32 bytes (256 bits) de entropía por código
- * - Codificados en Base58 (sin ambigüedad: 0/O, I/l/1)
- * - Hasheados con SHA-256 antes de almacenar
- * - Un solo uso: marcados como usados tras desbloqueo
- * - Resistentes a fuerza bruta futura con verificación PBKDF2
- * 
- * FORMATO:
- * - Código en texto plano: 44 caracteres Base58
- * - Ejemplo: "3yZe7d2dEN4vZxBmF1DrG8TqVJLNnE2VvZjBN43FP7Tx"
- * 
- * ALGORITMO:
- * 1. Generar master secret (32 bytes random)
- * 2. Derivar 4 códigos usando HKDF-SHA512 con diferentes info
- * 3. Hashear cada código con SHA-256 para almacenar
- * 4. Retornar códigos en texto plano (para exportar) y hashes
+ * G8keeper Recovery Codes – v2 (SHA-512 hashing)
+ *
+ * 4 one-time codes, 256-bit entropy each, derived via HKDF-SHA-512.
+ * Stored as SHA-512 hashes.
  */
 
 import { u8ToB64, b64ToU8 } from "../../shared/b64.ts";
@@ -135,10 +117,10 @@ async function hmacSha512(key: Uint8Array, data: Uint8Array): Promise<Uint8Array
 }
 
 /**
- * SHA-256 hash
+ * SHA-512 hash (upgraded from SHA-256 for v2 maximum security)
  */
-async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const hash = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+async function sha512(data: Uint8Array): Promise<Uint8Array> {
+  const hash = await crypto.subtle.digest("SHA-512", data as unknown as BufferSource);
   return new Uint8Array(hash);
 }
 
@@ -167,15 +149,15 @@ export async function generateRecoveryCodes(): Promise<{
 
     // Derivar 4 códigos únicos usando HKDF con diferentes info
     for (let i = 0; i < 4; i++) {
-      const info = te.encode(`recovery-code-v1-${i}`);
+      const info = te.encode(`recovery-code-v2-${i}`);
       const codeBytes = await hkdfSha512(masterSecret, salt, info, 32);
-      
-      // Convertir a Base58 (formato amigable)
+
+      // Base58 encoding (human-friendly, no ambiguous chars)
       const codeStr = toBase58(codeBytes);
       codes.push(codeStr);
 
-      // Hashear para almacenar (SHA-256)
-      const hash = await sha256(codeBytes);
+      // SHA-512 hash for storage (never store plaintext codes)
+      const hash = await sha512(codeBytes);
       hashes.push(u8ToB64(hash));
     }
 
@@ -202,7 +184,7 @@ export async function verifyRecoveryCode(
 ): Promise<boolean> {
   try {
     const codeBytes = fromBase58(code);
-    const hash = await sha256(codeBytes);
+    const hash = await sha512(codeBytes);
     const hashB64 = u8ToB64(hash);
     
     // Comparación constant-time para prevenir timing attacks

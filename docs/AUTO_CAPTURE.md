@@ -13,7 +13,7 @@ El content script `src/content/credential-assistant.ts` detecta formularios de r
    - Se cierra el aviso inmediatamente.
    - Si el vault está bloqueado, se abre el popup de la extensión para desbloquear.
    - El content script espera el desbloqueo (`waitForVaultUnlock`, polling hasta 60s).
-5. Al desbloquearse, el popup se cierra automáticamente (`window.close()` en `src/popup/popup.tsx`) y se abre el modal in-page para crear credencial segura.
+5. Al desbloquearse, el popup se cierra automáticamente (`window.close()` en `src/popup/app/handlers/vaultHandlers.ts`) y se abre el modal in-page para crear credencial segura.
 6. Al guardar en el modal:
    - Se crea la entrada en el vault (`ENTRY_ADD`).
    - Se rellenan username/password en el formulario detectado.
@@ -35,7 +35,8 @@ El content script `src/content/credential-assistant.ts` detecta formularios de r
 ## Archivos clave
 
 - `src/content/credential-assistant.ts`: detección de formularios, aviso signup, modal de creación y captura pasiva.
-- `src/popup/popup.tsx`: unlock UI; cierra popup tras desbloqueo correcto.
+- `src/popup/popup.tsx`: composición/wiring del popup.
+- `src/popup/app/handlers/vaultHandlers.ts`: lógica de unlock y cierre del popup.
 - `src/background/session.ts`: handlers de `OPEN_POPUP_FOR_SIGNUP` y operaciones de vault.
 - `src/background/sw.ts`: allowlist/ruteo de mensajes entre content script y backend.
 - `src/shared/messages.ts`: tipos de mensaje compartidos.
@@ -46,7 +47,7 @@ El content script `src/content/credential-assistant.ts` detecta formularios de r
   - Verifica que el flujo de unlock en signup existe (`waitForVaultUnlock`).
   - Verifica que aceptar el aviso cierra el aviso inmediatamente.
   - Verifica que `monitorForms` ya no bloquea el aviso por vault bloqueado.
-  - Verifica que el popup incluye `window.close()` al desbloquear.
+  - Verifica por comportamiento que el popup se cierra tras desbloqueo exitoso.
 
 ## Ejecución local
 

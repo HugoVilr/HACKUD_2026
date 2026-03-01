@@ -15,12 +15,12 @@ import {
 import { hasEncryptedVault, loadEncryptedVault, saveEncryptedVault, deleteEncryptedVault } from "../core/vault/storage.ts";
 import { createEncryptedVault, reencryptVault, unlockEncryptedVault, unlockWithRecoveryCode } from "../core/vault/crypto.ts";
 import { deleteEntry, entryPublicView, getEntrySecret, listPublicEntries, upsertEntry } from "../core/vault/entries.ts";
-import type { EncryptedVault, VaultPlaintext } from "../core/vault/types.ts";
+import type { EncryptedVault, VaultPlaintext, VaultKeyBundle } from "../core/vault/types.ts";
 
 
 type Session = {
   unlocked: boolean;
-  key: CryptoKey | null;
+  key: VaultKeyBundle | null;
   plaintext: VaultPlaintext | null;
   encrypted: EncryptedVault | null;
   autoLockMs: number;
@@ -69,12 +69,20 @@ const session: Session = {
 type HibpAuditRecord = {
   audit: HibpAuditSummary;
   items: HibpAuditItem[];
-  entryRefs: Array<{ entryId: string; title: string; domain?: string }>;
+  entryRefs: Array<{ entryId: string; title: string; domain?: string; username?: string }>;
   domainCache: Record<string, DomainAuditCacheEntry>;
+  emailCache: Record<string, EmailAuditCacheEntry>;
 };
 
 type DomainAuditCacheEntry = {
   status: HibpAuditItem["domainStatus"];
+  breachCount: number | null;
+  breaches?: string[];
+  error?: string;
+};
+
+type EmailAuditCacheEntry = {
+  status: HibpAuditItem["emailStatus"];
   breachCount: number | null;
   breaches?: string[];
   error?: string;
@@ -99,6 +107,47 @@ const sleep = async (ms: number) => {
 
 const URL_IN_TEXT_REGEX = /https?:\/\/[^\s<>"')]+/gi;
 const DOMAIN_IN_TEXT_REGEX = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b/gi;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MOCK_EMAIL_BREACH_DB: Record<string, string[]> = {
+  "account-exists@hibp-integration-tests.com": ["Adobe", "LinkedIn"],
+  "multiple-breaches@hibp-integration-tests.com": ["Adobe", "Canva", "Dropbox"],
+  "stealer-log@hibp-integration-tests.com": ["StealerLogs-2025"],
+  "demo@compromised.mock": ["MockBreach-Alpha"],
+};
+
+const normalizeAuditItem = (raw: Partial<HibpAuditItem>): HibpAuditItem => {
+  return {
+    entryId: String(raw.entryId ?? ""),
+    title: String(raw.title ?? "(sin titulo)"),
+    username: raw.username ? String(raw.username) : undefined,
+    count: Number.isFinite(Number(raw.count)) ? Number(raw.count) : null,
+    compromised: Boolean(raw.compromised),
+    status: raw.status === "error" ? "error" : "ok",
+    error: raw.error ? String(raw.error) : undefined,
+    domain: raw.domain ? String(raw.domain) : undefined,
+    domainStatus:
+      raw.domainStatus === "pwned" ||
+      raw.domainStatus === "safe" ||
+      raw.domainStatus === "error" ||
+      raw.domainStatus === "skipped"
+        ? raw.domainStatus
+        : "skipped",
+    domainBreachCount: Number.isFinite(Number(raw.domainBreachCount)) ? Number(raw.domainBreachCount) : null,
+    domainBreaches: Array.isArray(raw.domainBreaches) ? raw.domainBreaches.map(String) : undefined,
+    domainError: raw.domainError ? String(raw.domainError) : undefined,
+    email: raw.email ? String(raw.email) : undefined,
+    emailStatus:
+      raw.emailStatus === "pwned" ||
+      raw.emailStatus === "safe" ||
+      raw.emailStatus === "error" ||
+      raw.emailStatus === "skipped"
+        ? raw.emailStatus
+        : "skipped",
+    emailBreachCount: Number.isFinite(Number(raw.emailBreachCount)) ? Number(raw.emailBreachCount) : null,
+    emailBreaches: Array.isArray(raw.emailBreaches) ? raw.emailBreaches.map(String) : undefined,
+    emailError: raw.emailError ? String(raw.emailError) : undefined,
+  };
+};
 
 const loadAuditRecord = async (auditId: string): Promise<HibpAuditRecord | null> => {
   const key = auditStorageKey(auditId);
@@ -124,12 +173,20 @@ const loadAuditRecord = async (auditId: string): Promise<HibpAuditRecord | null>
       domainSafe: Number(audit.domainSafe ?? 0),
       domainErrors: Number(audit.domainErrors ?? 0),
       domainSkipped: Number(audit.domainSkipped ?? 0),
+      emailPwned: Number(audit.emailPwned ?? 0),
+      emailSafe: Number(audit.emailSafe ?? 0),
+      emailErrors: Number(audit.emailErrors ?? 0),
+      emailSkipped: Number(audit.emailSkipped ?? 0),
     },
-    items: Array.isArray(raw.items) ? (raw.items as HibpAuditItem[]) : [],
+    items: Array.isArray(raw.items) ? raw.items.map((item) => normalizeAuditItem(item as Partial<HibpAuditItem>)) : [],
     entryRefs: Array.isArray(raw.entryRefs) ? (raw.entryRefs as HibpAuditRecord["entryRefs"]) : [],
     domainCache:
       raw.domainCache && typeof raw.domainCache === "object"
         ? (raw.domainCache as HibpAuditRecord["domainCache"])
+        : {},
+    emailCache:
+      raw.emailCache && typeof raw.emailCache === "object"
+        ? (raw.emailCache as HibpAuditRecord["emailCache"])
         : {},
   };
 
@@ -252,6 +309,120 @@ const resolveEntryDomain = (entry: { domain?: string; title?: string; notes?: st
   );
 };
 
+const normalizeEmailForAudit = (raw: string | undefined): string | null => {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return null;
+  if (!EMAIL_REGEX.test(value)) return null;
+  return value;
+};
+
+const hashEmail = (value: string): number => {
+  let h = 0;
+  for (let i = 0; i < value.length; i++) {
+    h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return h;
+};
+
+const requestMockEmailAuditServer = async (email: string): Promise<{
+  status: number;
+  body: { compromised?: boolean; breachCount?: number; breaches?: string[]; error?: string };
+}> => {
+  await sleep(140 + (hashEmail(email) % 160));
+
+  if (!normalizeEmailForAudit(email)) {
+    return { status: 400, body: { error: "INVALID_EMAIL_FORMAT" } };
+  }
+  if (email.endsWith("@timeout.mock")) {
+    return { status: 503, body: { error: "MOCK_SERVER_TIMEOUT" } };
+  }
+
+  const direct = MOCK_EMAIL_BREACH_DB[email];
+  if (direct) {
+    return {
+      status: 200,
+      body: {
+        compromised: true,
+        breachCount: direct.length,
+        breaches: direct,
+      },
+    };
+  }
+
+  // En modo mock, simulamos ~20% de correos comprometidos para poder probar UX.
+  const seed = hashEmail(email) % 10;
+  if (seed <= 1) {
+    const breaches = [`MockBreach-${(hashEmail(email) % 6) + 1}`];
+    return {
+      status: 200,
+      body: {
+        compromised: true,
+        breachCount: breaches.length,
+        breaches,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      compromised: false,
+      breachCount: 0,
+      breaches: [],
+    },
+  };
+};
+
+const mockEmailBreachCheck = async (email: string): Promise<EmailAuditCacheEntry> => {
+  const res = await requestMockEmailAuditServer(email);
+  if (res.status === 400) {
+    return {
+      status: "skipped",
+      breachCount: null,
+      error: res.body.error ?? "INVALID_EMAIL_FORMAT",
+    };
+  }
+  if (res.status === 429) {
+    throw new Error("MOCK_EMAIL_RATE_LIMITED");
+  }
+  if (res.status >= 500) {
+    throw new Error(res.body.error || `MOCK_EMAIL_HTTP_${res.status}`);
+  }
+  if (res.status !== 200) {
+    throw new Error(`MOCK_EMAIL_HTTP_${res.status}`);
+  }
+
+  const compromised = Boolean(res.body.compromised);
+  const breaches = Array.isArray(res.body.breaches) ? res.body.breaches.map(String) : [];
+  const breachCount = Number.isFinite(Number(res.body.breachCount))
+    ? Number(res.body.breachCount)
+    : breaches.length;
+
+  return {
+    status: compromised ? "pwned" : "safe",
+    breachCount,
+    breaches: breaches.slice(0, 10),
+  };
+};
+
+const mockEmailBreachCheckWithRetry = async (email: string): Promise<EmailAuditCacheEntry> => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await mockEmailBreachCheck(email);
+    } catch (error) {
+      lastError = error;
+      const message = String((error as Error)?.message ?? error);
+      const transient = message.includes("RATE_LIMITED") || message.includes("TIMEOUT") || message.includes("HTTP_503");
+      if (!transient || attempt === 2) {
+        throw error;
+      }
+      await sleep((attempt + 1) * 900);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("MOCK_EMAIL_CHECK_FAILED");
+};
+
 const hibpDomainCheck = async (domain: string): Promise<DomainAuditCacheEntry> => {
   const url = `https://haveibeenpwned.com/api/v3/breaches?domain=${encodeURIComponent(domain)}`;
   const res = await fetch(url, {
@@ -364,7 +535,13 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
     let count: number | null = null;
     let errorMessage: string | undefined;
     const domain = normalizeDomainForAudit(target.domain);
+    const username = String(sourceEntry?.username ?? target.username ?? "").trim();
+    const email = normalizeEmailForAudit(username);
     let domainResult: DomainAuditCacheEntry = {
+      status: "skipped",
+      breachCount: null,
+    };
+    let emailResult: EmailAuditCacheEntry = {
       status: "skipped",
       breachCount: null,
     };
@@ -397,12 +574,31 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       }
     }
 
+    if (email) {
+      const cached = record.emailCache[email];
+      if (cached) {
+        emailResult = cached;
+      } else {
+        try {
+          emailResult = await mockEmailBreachCheckWithRetry(email);
+        } catch (error) {
+          emailResult = {
+            status: "error",
+            breachCount: null,
+            error: String((error as Error)?.message ?? error),
+          };
+        }
+        record.emailCache[email] = emailResult;
+      }
+    }
+
     const compromised = Number(count) > 0;
     const status: HibpAuditItem["status"] = errorMessage ? "error" : "ok";
 
     record.items.push({
       entryId: target.entryId,
       title: target.title,
+      username: username || undefined,
       count: count ?? null,
       compromised: status === "ok" ? compromised : false,
       status,
@@ -412,6 +608,11 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       domainBreachCount: domainResult.breachCount,
       domainBreaches: domainResult.breaches,
       domainError: domainResult.error,
+      email: email ?? undefined,
+      emailStatus: emailResult.status,
+      emailBreachCount: emailResult.breachCount,
+      emailBreaches: emailResult.breaches,
+      emailError: emailResult.error,
     });
 
     record.audit.processed += 1;
@@ -431,6 +632,16 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       record.audit.domainErrors += 1;
     } else {
       record.audit.domainSkipped += 1;
+    }
+
+    if (emailResult.status === "pwned") {
+      record.audit.emailPwned += 1;
+    } else if (emailResult.status === "safe") {
+      record.audit.emailSafe += 1;
+    } else if (emailResult.status === "error") {
+      record.audit.emailErrors += 1;
+    } else {
+      record.audit.emailSkipped += 1;
     }
 
     if (record.audit.processed >= record.audit.total) {
@@ -464,6 +675,9 @@ const advanceHibpAuditOneStep = async (record: HibpAuditRecord): Promise<HibpAud
       domainStatus: "error",
       domainBreachCount: null,
       domainError: message,
+      emailStatus: "error",
+      emailBreachCount: null,
+      emailError: message,
     });
     await saveAuditRecord(record);
     await finalizeScheduleAfterAudit(record.audit);
@@ -521,6 +735,7 @@ const startHibpAudit = async (): Promise<{ auditId: string; total: number; start
     entryId: entry.id,
     title: String(entry.title || "(sin titulo)"),
     domain: resolveEntryDomain(entry),
+    username: entry.username ? String(entry.username) : undefined,
   }));
 
   if (entryRefs.length === 0) {
@@ -544,10 +759,15 @@ const startHibpAudit = async (): Promise<{ auditId: string; total: number; start
       domainSafe: 0,
       domainErrors: 0,
       domainSkipped: 0,
+      emailPwned: 0,
+      emailSafe: 0,
+      emailErrors: 0,
+      emailSkipped: 0,
     },
     items: [],
     entryRefs,
     domainCache: {},
+    emailCache: {},
   };
 
   await saveAuditRecord(record);
@@ -959,13 +1179,13 @@ export async function handleMessage(
          * RECOMENDACIÓN: Implementar como WARNING, no error bloqueante
          */
 
-        const { encrypted, key, plaintext, recoveryCodes } = await createEncryptedVault(master, vaultName);
+        const { encrypted, keys, plaintext, recoveryCodes } = await createEncryptedVault(master, vaultName);
         
         await saveEncryptedVault(encrypted);
 
         // dejamos sesión desbloqueada
         session.unlocked = true;
-        session.key = key;
+        session.key = keys;
         session.plaintext = plaintext;
         session.encrypted = encrypted;
         touch();
@@ -992,7 +1212,7 @@ export async function handleMessage(
         if (!enc) return err("NO_VAULT", "No hay vault guardado");
 
         try {
-          const { key, plaintext } = await unlockEncryptedVault(enc, master);
+          const { keys, plaintext } = await unlockEncryptedVault(enc, master);
           
           // Unlock exitoso: resetear contador de intentos
           unlockAttempts.count = 0;
@@ -1000,7 +1220,7 @@ export async function handleMessage(
           unlockAttempts.lockedUntil = 0;
           
           session.unlocked = true;
-          session.key = key;
+          session.key = keys;
           session.plaintext = plaintext;
           session.encrypted = enc;
           touch();
@@ -1013,14 +1233,14 @@ export async function handleMessage(
           unlockAttempts.count++;
           unlockAttempts.lastAttempt = Date.now();
           
-          // Lockout después de 5 intentos fallidos
-          if (unlockAttempts.count >= 5) {
-            unlockAttempts.lockedUntil = Date.now() + 30_000; // 30 segundos
+          // Lockout después de 3 intentos fallidos (v2: más agresivo)
+          if (unlockAttempts.count >= 3) {
+            unlockAttempts.lockedUntil = Date.now() + 60_000; // 60 segundos
           }
           
-          // Delay progresivo (1s, 2s, 3s, 4s, 5s max)
-          const delaySec = Math.min(unlockAttempts.count, 5);
-          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          // Delay exponencial: 2^n seconds (2s, 4s, 8s, 16s ...)
+          const delayMs = Math.min(2 ** unlockAttempts.count * 1000, 30_000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
           
           return err("BAD_MASTER", "Master incorrecta o vault corrupto");
         }
@@ -1051,7 +1271,7 @@ export async function handleMessage(
         }
 
         try {
-          const { key, plaintext, codeIndex } = await unlockWithRecoveryCode(enc, recoveryCode);
+          const { keys, plaintext, codeIndex } = await unlockWithRecoveryCode(enc, recoveryCode);
           
           // Marcar el código como usado
           enc.recoveryCodes.used[codeIndex] = true;
@@ -1063,7 +1283,7 @@ export async function handleMessage(
           unlockAttempts.lockedUntil = 0;
           
           session.unlocked = true;
-          session.key = key;
+          session.key = keys;
           session.plaintext = plaintext;
           session.encrypted = enc;
           touch();
@@ -1077,14 +1297,14 @@ export async function handleMessage(
           unlockAttempts.count++;
           unlockAttempts.lastAttempt = Date.now();
           
-          // Lockout después de 5 intentos fallidos
-          if (unlockAttempts.count >= 5) {
-            unlockAttempts.lockedUntil = Date.now() + 30_000; // 30 segundos
+          // Lockout después de 3 intentos fallidos (v2: más agresivo)
+          if (unlockAttempts.count >= 3) {
+            unlockAttempts.lockedUntil = Date.now() + 60_000; // 60 segundos
           }
           
-          // Delay progresivo
-          const delaySec = Math.min(unlockAttempts.count, 5);
-          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          // Delay exponencial: 2^n seconds
+          const delaySec = Math.min(2 ** unlockAttempts.count * 1000, 30_000);
+          await new Promise(resolve => setTimeout(resolve, delaySec));
           
           // Mensajes de error específicos
           if (error.message === "Recovery code already used") {

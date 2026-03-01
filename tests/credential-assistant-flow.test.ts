@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createInitialPopupState } from "../src/popup/app/state/popupState.ts";
+import { handleUnlockVaultSubmit } from "../src/popup/app/handlers/popupHandlers.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -67,16 +69,40 @@ test("credential-assistant chooses best target form for AUTOFILL_CREDENTIALS", (
   );
 });
 
-test("popup closes extension window after successful unlock", () => {
-  const src = load("src/popup/popup.tsx");
-  const unlockIndex = src.indexOf('if (action === "unlock-vault") {');
-  assert.ok(unlockIndex >= 0, "unlock handler should exist");
-  const block = src.slice(unlockIndex, unlockIndex + 1400);
-  assert.ok(
-    block.includes("const shouldClosePopup = await consumeSignupUnlockContext();"),
-    "unlock success should evaluate popup context before closing"
-  );
-  assert.ok(block.includes("window.close()"), "unlock success path should close popup");
+test("popup closes extension window after successful unlock", async () => {
+  const state = createInitialPopupState();
+  const deps = {
+    root: { addEventListener() {} } as unknown as HTMLElement,
+    state,
+    render: () => {},
+    setToast: () => {},
+    sendApiMessage: async () => ({ ok: true, data: {} }),
+    refreshStatus: async () => {},
+    refreshEntries: async () => true,
+    ensureSelectedSecret: async () => null,
+    saveRecoveryCodesContext: async () => {},
+    consumeSignupUnlockContext: async () => true,
+    getSelectedEntry: () => null,
+    selectEntry: () => {},
+    copyText: async () => {},
+    recoveryCodesKey: "g8keeper_recovery_codes_context",
+  };
+
+  let closeCalled = false;
+  const previousWindow = (globalThis as any).window;
+  (globalThis as any).window = {
+    close: () => {
+      closeCalled = true;
+    },
+  };
+
+  const data = new FormData();
+  data.set("master", "correct horse battery staple");
+
+  await handleUnlockVaultSubmit(data, deps);
+  await new Promise((resolve) => setTimeout(resolve, 110));
+  assert.equal(closeCalled, true, "unlock success path should close popup");
+  (globalThis as any).window = previousWindow;
 });
 
 test("service worker stores signup popup context before opening popup", () => {
